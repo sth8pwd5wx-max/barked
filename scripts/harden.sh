@@ -74,6 +74,11 @@ declare -a STATE_PACKAGES=()    # packages installed by script
 STATE_PROFILE=""
 STATE_LAST_RUN=""
 
+# Findings table (populated by check_module_state / record_finding)
+declare -a FINDINGS_STATUS=()   # pass|fail|manual|skip|partial
+declare -a FINDINGS_MODULE=()   # module id
+declare -a FINDINGS_MESSAGE=()  # human-readable finding
+
 # Advanced questionnaire answers
 Q_THREAT=""
 Q_USECASE=""
@@ -612,6 +617,412 @@ print_findings_table() {
         done
     done
     echo ""
+}
+
+# Record a single module finding into the findings table
+record_finding() {
+    local status="$1" mod_id="$2" message="$3"
+    FINDINGS_STATUS+=("$status")
+    FINDINGS_MODULE+=("$mod_id")
+    FINDINGS_MESSAGE+=("$message")
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# MODULE CHECK FUNCTIONS — AUDIT ONLY (no changes)
+# ═══════════════════════════════════════════════════════════════════
+
+# Dispatcher: check any module's current security state without making
+# changes and record the result via record_finding().
+# Usage: check_module_state <module-id>
+check_module_state() {
+    local mod_id="$1"
+
+    case "$mod_id" in
+
+    # ── Disk Encryption ──────────────────────────────────────────
+    disk-encrypt)
+        if [[ "$OS" == "macos" ]]; then
+            if fdesetup status 2>/dev/null | grep -q "On"; then
+                record_finding "pass" "$mod_id" "FileVault enabled"
+            else
+                record_finding "fail" "$mod_id" "FileVault not enabled"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if lsblk -o NAME,TYPE,FSTYPE 2>/dev/null | grep -q "crypt"; then
+                record_finding "pass" "$mod_id" "LUKS encryption detected"
+            else
+                record_finding "fail" "$mod_id" "No disk encryption detected"
+            fi
+        fi
+        ;;
+
+    # ── Inbound Firewall ─────────────────────────────────────────
+    firewall-inbound)
+        if [[ "$OS" == "macos" ]]; then
+            if /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null | grep -qE "enabled|State = 1|State = 2"; then
+                record_finding "pass" "$mod_id" "Firewall active"
+            else
+                record_finding "fail" "$mod_id" "Firewall not enabled"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+                record_finding "pass" "$mod_id" "ufw active"
+            else
+                record_finding "fail" "$mod_id" "Firewall not active"
+            fi
+        fi
+        ;;
+
+    # ── Stealth Mode ─────────────────────────────────────────────
+    firewall-stealth)
+        if [[ "$OS" == "macos" ]]; then
+            if /usr/libexec/ApplicationFirewall/socketfilterfw --getstealthmode 2>/dev/null | grep -q "enabled"; then
+                record_finding "pass" "$mod_id" "Stealth mode enabled"
+            else
+                record_finding "fail" "$mod_id" "Stealth mode not enabled"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if iptables -C INPUT -p icmp --icmp-type echo-request -j DROP 2>/dev/null; then
+                record_finding "pass" "$mod_id" "ICMP echo-request dropped"
+            else
+                record_finding "fail" "$mod_id" "ICMP echo-request not blocked"
+            fi
+        fi
+        ;;
+
+    # ── Outbound Firewall ────────────────────────────────────────
+    firewall-outbound)
+        if [[ "$OS" == "macos" ]]; then
+            if cask_installed lulu; then
+                record_finding "pass" "$mod_id" "LuLu installed"
+            else
+                record_finding "fail" "$mod_id" "No outbound firewall"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if command -v ufw &>/dev/null && ufw status verbose 2>/dev/null | grep -q "deny (outgoing)"; then
+                record_finding "pass" "$mod_id" "ufw denies outgoing by default"
+            else
+                record_finding "fail" "$mod_id" "Outbound traffic not restricted"
+            fi
+        fi
+        ;;
+
+    # ── Secure DNS ───────────────────────────────────────────────
+    dns-secure)
+        if [[ "$OS" == "macos" ]]; then
+            if networksetup -getdnsservers Wi-Fi 2>/dev/null | grep -q "9.9.9.9"; then
+                record_finding "pass" "$mod_id" "Quad9 DNS configured"
+            else
+                record_finding "fail" "$mod_id" "DNS not set to Quad9"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if (command -v resolvectl &>/dev/null && resolvectl dns 2>/dev/null | grep -q "9.9.9.9") || \
+               ([[ -f /etc/resolv.conf ]] && grep -q "9.9.9.9" /etc/resolv.conf 2>/dev/null); then
+                record_finding "pass" "$mod_id" "Quad9 DNS configured"
+            else
+                record_finding "fail" "$mod_id" "DNS not set to Quad9"
+            fi
+        fi
+        ;;
+
+    # ── Automatic Updates ────────────────────────────────────────
+    auto-updates)
+        if [[ "$OS" == "macos" ]]; then
+            if [[ "$(defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled 2>/dev/null)" == "1" ]]; then
+                record_finding "pass" "$mod_id" "Automatic updates enabled"
+            else
+                record_finding "fail" "$mod_id" "Automatic updates not enabled"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if command -v unattended-upgrades &>/dev/null || systemctl is-active dnf-automatic.timer &>/dev/null 2>&1; then
+                record_finding "pass" "$mod_id" "Automatic updates configured"
+            else
+                record_finding "fail" "$mod_id" "Automatic updates not configured"
+            fi
+        fi
+        ;;
+
+    # ── Guest Account ────────────────────────────────────────────
+    guest-disable)
+        if [[ "$OS" == "macos" ]]; then
+            if [[ "$(defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled 2>/dev/null)" == "0" ]]; then
+                record_finding "pass" "$mod_id" "Guest account disabled"
+            else
+                record_finding "fail" "$mod_id" "Guest account enabled"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            record_finding "pass" "$mod_id" "No guest account by default"
+        fi
+        ;;
+
+    # ── Lock Screen ──────────────────────────────────────────────
+    lock-screen)
+        if [[ "$OS" == "macos" ]]; then
+            if [[ "$(run_as_user defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]]; then
+                record_finding "pass" "$mod_id" "Immediate password on lock"
+            else
+                record_finding "fail" "$mod_id" "Password delay on lock screen"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if command -v gsettings &>/dev/null && [[ "$(run_as_user gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]]; then
+                record_finding "pass" "$mod_id" "Screen lock enabled"
+            else
+                record_finding "fail" "$mod_id" "Screen lock not configured"
+            fi
+        fi
+        ;;
+
+    # ── Hostname Scrub ───────────────────────────────────────────
+    hostname-scrub)
+        if [[ "$OS" == "macos" ]]; then
+            local cname
+            cname="$(scutil --get ComputerName 2>/dev/null)"
+            if [[ "$cname" == "MacBook" || "$cname" == "Mac" ]]; then
+                record_finding "pass" "$mod_id" "Hostname is generic (${cname})"
+            else
+                record_finding "fail" "$mod_id" "Hostname reveals identity (${cname})"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            local hname
+            hname="$(hostname 2>/dev/null)"
+            if [[ "$hname" == "linux" || "$hname" == "localhost" ]]; then
+                record_finding "pass" "$mod_id" "Hostname is generic"
+            else
+                record_finding "fail" "$mod_id" "Hostname may reveal identity (${hname})"
+            fi
+        fi
+        ;;
+
+    # ── SSH Hardening ────────────────────────────────────────────
+    ssh-harden)
+        if [[ -f "${REAL_HOME}/.ssh/config" ]] && grep -q "IdentitiesOnly yes" "${REAL_HOME}/.ssh/config" 2>/dev/null; then
+            record_finding "pass" "$mod_id" "SSH config has IdentitiesOnly yes"
+        else
+            record_finding "fail" "$mod_id" "SSH config not hardened"
+        fi
+        ;;
+
+    # ── Git Hardening ────────────────────────────────────────────
+    git-harden)
+        if [[ "$(run_as_user git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
+            record_finding "pass" "$mod_id" "Git commit signing enabled"
+        else
+            record_finding "fail" "$mod_id" "Git commit signing not enabled"
+        fi
+        ;;
+
+    # ── Telemetry ────────────────────────────────────────────────
+    telemetry-disable)
+        if [[ "$OS" == "macos" ]]; then
+            if [[ "$(defaults read com.apple.CrashReporter DialogType 2>/dev/null)" == "none" ]]; then
+                record_finding "pass" "$mod_id" "Crash reporter telemetry disabled"
+            else
+                record_finding "fail" "$mod_id" "Crash reporter telemetry active"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            record_finding "manual" "$mod_id" "Verify telemetry services manually"
+        fi
+        ;;
+
+    # ── Monitoring Tools ─────────────────────────────────────────
+    monitoring-tools)
+        if [[ "$OS" == "macos" ]]; then
+            if cask_installed oversight && cask_installed blockblock; then
+                record_finding "pass" "$mod_id" "OverSight and BlockBlock installed"
+            else
+                record_finding "fail" "$mod_id" "Monitoring tools not installed"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if command -v auditctl &>/dev/null && command -v aide &>/dev/null; then
+                record_finding "pass" "$mod_id" "auditd + aide installed"
+            else
+                record_finding "fail" "$mod_id" "auditd/aide not installed"
+            fi
+        fi
+        ;;
+
+    # ── Permissions Audit ────────────────────────────────────────
+    permissions-audit)
+        record_finding "manual" "$mod_id" "Requires manual review of permissions"
+        ;;
+
+    # ── Browser Basic ────────────────────────────────────────────
+    browser-basic)
+        local ff_profile=""
+        if [[ "$OS" == "macos" ]]; then
+            ff_profile=$(find "${REAL_HOME}/Library/Application Support/Firefox/Profiles" -maxdepth 1 -name "*.default-release" -type d 2>/dev/null | head -1)
+        elif [[ "$OS" == "linux" ]]; then
+            ff_profile=$(find "${REAL_HOME}/.mozilla/firefox" -maxdepth 1 -name "*.default-release" -type d 2>/dev/null | head -1)
+        fi
+        if [[ -n "$ff_profile" ]] && [[ -f "${ff_profile}/user.js" ]] && grep -q "toolkit.telemetry.enabled" "${ff_profile}/user.js" 2>/dev/null; then
+            record_finding "pass" "$mod_id" "Firefox telemetry hardened via user.js"
+        else
+            record_finding "fail" "$mod_id" "Firefox not hardened"
+        fi
+        ;;
+
+    # ── Browser Fingerprint ──────────────────────────────────────
+    browser-fingerprint)
+        local ff_profile=""
+        if [[ "$OS" == "macos" ]]; then
+            ff_profile=$(find "${REAL_HOME}/Library/Application Support/Firefox/Profiles" -maxdepth 1 -name "*.default-release" -type d 2>/dev/null | head -1)
+        elif [[ "$OS" == "linux" ]]; then
+            ff_profile=$(find "${REAL_HOME}/.mozilla/firefox" -maxdepth 1 -name "*.default-release" -type d 2>/dev/null | head -1)
+        fi
+        if [[ -n "$ff_profile" ]] && [[ -f "${ff_profile}/user.js" ]] && grep -q "privacy.resistFingerprinting" "${ff_profile}/user.js" 2>/dev/null; then
+            record_finding "pass" "$mod_id" "Fingerprint resistance enabled"
+        else
+            record_finding "fail" "$mod_id" "Fingerprint resistance not enabled"
+        fi
+        ;;
+
+    # ── MAC Address Rotation ─────────────────────────────────────
+    mac-rotate)
+        if [[ "$OS" == "linux" ]]; then
+            if [[ -f /etc/NetworkManager/conf.d/mac-randomize.conf ]]; then
+                record_finding "pass" "$mod_id" "MAC randomization configured"
+            else
+                record_finding "fail" "$mod_id" "MAC randomization not configured"
+            fi
+        elif [[ "$OS" == "macos" ]]; then
+            record_finding "manual" "$mod_id" "Verify MAC rotation in Network settings"
+        fi
+        ;;
+
+    # ── VPN Kill Switch ──────────────────────────────────────────
+    vpn-killswitch)
+        if command -v mullvad &>/dev/null; then
+            if mullvad always-require-vpn get 2>/dev/null | grep -qi "enabled\|on"; then
+                record_finding "pass" "$mod_id" "Mullvad kill switch enabled"
+            else
+                record_finding "fail" "$mod_id" "Mullvad installed but kill switch off"
+            fi
+        else
+            record_finding "fail" "$mod_id" "Mullvad VPN not installed"
+        fi
+        ;;
+
+    # ── Traffic Obfuscation ──────────────────────────────────────
+    traffic-obfuscation)
+        record_finding "manual" "$mod_id" "Requires manual verification of DAITA/Tor"
+        ;;
+
+    # ── Metadata Strip ───────────────────────────────────────────
+    metadata-strip)
+        if command -v exiftool &>/dev/null; then
+            record_finding "pass" "$mod_id" "exiftool installed"
+        else
+            record_finding "fail" "$mod_id" "exiftool not installed"
+        fi
+        ;;
+
+    # ── Dev Isolation ────────────────────────────────────────────
+    dev-isolation)
+        if [[ "$OS" == "macos" ]] && [[ -d "/Applications/UTM.app" ]]; then
+            record_finding "pass" "$mod_id" "UTM installed for VM isolation"
+        elif command -v docker &>/dev/null; then
+            record_finding "pass" "$mod_id" "Docker available for isolation"
+        else
+            record_finding "fail" "$mod_id" "No isolation tools detected"
+        fi
+        ;;
+
+    # ── Audit Script ─────────────────────────────────────────────
+    audit-script)
+        if [[ "$OS" == "macos" ]] && [[ -f "${REAL_HOME}/Library/LaunchAgents/com.secure.weekly-audit.plist" ]]; then
+            record_finding "pass" "$mod_id" "Weekly audit LaunchAgent scheduled"
+        elif [[ "$OS" == "linux" ]] && crontab -u "${REAL_USER}" -l 2>/dev/null | grep -q "weekly-audit"; then
+            record_finding "pass" "$mod_id" "Weekly audit in crontab"
+        else
+            record_finding "fail" "$mod_id" "No weekly audit scheduled"
+        fi
+        ;;
+
+    # ── Backup Guidance ──────────────────────────────────────────
+    backup-guidance)
+        record_finding "manual" "$mod_id" "Requires manual verification of backup strategy"
+        ;;
+
+    # ── Border Prep ──────────────────────────────────────────────
+    border-prep)
+        record_finding "manual" "$mod_id" "Requires manual verification of travel protocol"
+        ;;
+
+    # ── Bluetooth Disable ────────────────────────────────────────
+    bluetooth-disable)
+        if [[ "$OS" == "linux" ]]; then
+            if ! systemctl is-active bluetooth &>/dev/null 2>&1; then
+                record_finding "pass" "$mod_id" "Bluetooth service disabled"
+            else
+                record_finding "fail" "$mod_id" "Bluetooth service active"
+            fi
+        elif [[ "$OS" == "macos" ]]; then
+            record_finding "manual" "$mod_id" "Verify Bluetooth off in System Settings"
+        fi
+        ;;
+
+    # ── Kernel Sysctl (Linux only) ───────────────────────────────
+    kernel-sysctl)
+        if [[ "$OS" != "linux" ]]; then
+            record_finding "skip" "$mod_id" "Linux only — not applicable"
+        elif [[ -f /etc/sysctl.d/99-hardening.conf ]]; then
+            record_finding "pass" "$mod_id" "Hardening sysctl config present"
+        else
+            local all_ok=true
+            for param in "kernel.randomize_va_space=2" "fs.suid_dumpable=0" \
+                         "net.ipv4.conf.all.rp_filter=1" "net.ipv4.tcp_syncookies=1" \
+                         "net.ipv4.conf.all.accept_redirects=0" "net.ipv4.conf.all.accept_source_route=0"; do
+                local key="${param%%=*}" expected="${param#*=}"
+                local current
+                current="$(sysctl -n "$key" 2>/dev/null)"
+                if [[ "$current" != "$expected" ]]; then
+                    all_ok=false
+                    break
+                fi
+            done
+            if $all_ok; then
+                record_finding "pass" "$mod_id" "All sysctl parameters hardened"
+            else
+                record_finding "fail" "$mod_id" "Kernel parameters not fully hardened"
+            fi
+        fi
+        ;;
+
+    # ── AppArmor Enforce ─────────────────────────────────────────
+    apparmor-enforce)
+        if [[ "$OS" == "linux" ]]; then
+            if command -v aa-status &>/dev/null && aa-status 2>/dev/null | grep -q "enforce"; then
+                record_finding "pass" "$mod_id" "AppArmor profiles enforcing"
+            else
+                record_finding "fail" "$mod_id" "AppArmor not in enforce mode"
+            fi
+        elif [[ "$OS" == "macos" ]]; then
+            record_finding "manual" "$mod_id" "Check App Sandbox entitlements manually"
+        fi
+        ;;
+
+    # ── Boot Security ────────────────────────────────────────────
+    boot-security)
+        if [[ "$OS" == "macos" ]]; then
+            if csrutil status 2>/dev/null | grep -q "enabled"; then
+                record_finding "pass" "$mod_id" "SIP enabled"
+            else
+                record_finding "fail" "$mod_id" "SIP disabled"
+            fi
+        elif [[ "$OS" == "linux" ]]; then
+            if mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled"; then
+                record_finding "pass" "$mod_id" "Secure Boot enabled"
+            else
+                record_finding "fail" "$mod_id" "Secure Boot not enabled"
+            fi
+        fi
+        ;;
+
+    # ── Unknown module ───────────────────────────────────────────
+    *)
+        record_finding "skip" "$mod_id" "Unknown module"
+        ;;
+    esac
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2776,6 +3187,238 @@ mod_bluetooth_disable() {
             log_entry "bluetooth-disable" "check" "skip" "Bluetooth already disabled"
             MODULE_RESULT="skipped"
         fi
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# ADVANCED MODULE VETTING
+# ═══════════════════════════════════════════════════════════════════
+vet_advanced_module() {
+    local title="$1" risk_desc="$2" preview_func="$3"
+
+    if [[ "$DRY_RUN" == true ]]; then return 0; fi
+    if [[ "$AUTO_MODE" == true && "$ACCEPT_ADVANCED" != true ]]; then return 1; fi
+
+    echo ""
+    echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║${NC}  ${BOLD}⚠  ADVANCED MODULE: ${title}${NC}"
+    echo -e "${RED}║${NC}"
+    echo -e "${RED}║${NC}  ${risk_desc}"
+    echo -e "${RED}║${NC}"
+    echo -e "${RED}║${NC}  ${DIM}This module requires explicit confirmation to apply.${NC}"
+    echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${CYAN}Running mandatory dry-run preview...${NC}"
+    echo ""
+    if declare -f "$preview_func" &>/dev/null; then "$preview_func"; fi
+    echo ""
+    echo -ne "  ${BOLD}Type YES to apply these changes:${NC} "
+    read -r confirm
+    [[ "$confirm" == "YES" ]]
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# MODULE: kernel-sysctl (ADVANCED — Linux only)
+# ═══════════════════════════════════════════════════════════════════
+SYSCTL_PARAMS=(
+    "kernel.randomize_va_space=2"
+    "fs.suid_dumpable=0"
+    "net.ipv4.conf.all.rp_filter=1"
+    "net.ipv4.tcp_syncookies=1"
+    "net.ipv4.conf.all.accept_redirects=0"
+    "net.ipv4.conf.all.accept_source_route=0"
+)
+
+preview_kernel_sysctl() {
+    local changes=0 correct=0
+    printf "  %-44s %-10s %s\n" "Parameter" "Current" "Proposed"
+    printf "  %-44s %-10s %s\n" "---------" "-------" "--------"
+    for param in "${SYSCTL_PARAMS[@]}"; do
+        local key="${param%%=*}" expected="${param#*=}"
+        local current; current="$(sysctl -n "$key" 2>/dev/null || echo "?")"
+        if [[ "$current" == "$expected" ]]; then
+            printf "  %-44s %-10s %s\n" "$key" "$current" "${expected} (no change)"
+            ((correct++))
+        else
+            printf "  ${YELLOW}%-44s %-10s %s${NC}\n" "$key" "$current" "$expected"
+            ((changes++))
+        fi
+    done
+    echo ""
+    echo -e "  ${changes} parameters will change. ${correct} already correct."
+}
+
+mod_kernel_sysctl() {
+    local desc="Kernel sysctl hardening"
+    if [[ "$OS" != "linux" ]]; then
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped_unsupported"
+        log_entry "kernel-sysctl" "check" "skip" "Linux only"
+        MODULE_RESULT="skipped_unsupported"
+        return
+    fi
+    check_kernel_sysctl
+    if [[ "$CHECK_STATUS" == "PASS" ]]; then
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
+        log_entry "kernel-sysctl" "check" "skip" "Already hardened"
+        MODULE_RESULT="skipped"
+        return
+    fi
+    if ! vet_advanced_module "Kernel Sysctl Hardening" \
+        "Modifies kernel parameters. Risk: network failures, broken containers." \
+        "preview_kernel_sysctl"; then
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
+        log_entry "kernel-sysctl" "apply" "skip" "User declined"
+        MODULE_RESULT="skipped"
+        return
+    fi
+    local prev_values="" conf_file="/etc/sysctl.d/99-hardening.conf"
+    for param in "${SYSCTL_PARAMS[@]}"; do
+        local key="${param%%=*}"
+        local current; current="$(sysctl -n "$key" 2>/dev/null || echo "")"
+        prev_values+="${key}=${current};"
+    done
+    {
+        echo "# Security hardening — applied by harden.sh v${VERSION}"
+        for param in "${SYSCTL_PARAMS[@]}"; do
+            echo "${param%%=*} = ${param#*=}"
+        done
+    } > "$conf_file"
+    sysctl --system &>/dev/null
+    state_set_module "kernel-sysctl" "applied" "$prev_values"
+    print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
+    log_entry "kernel-sysctl" "apply" "applied" "Sysctl parameters hardened"
+    MODULE_RESULT="applied"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# MODULE: apparmor-enforce (ADVANCED — Linux enforce, macOS audit)
+# ═══════════════════════════════════════════════════════════════════
+preview_apparmor_enforce() {
+    if [[ "$OS" == "linux" ]] && command -v aa-status &>/dev/null; then
+        local enforce_count; enforce_count=$(aa-status 2>/dev/null | grep -c "enforce" || echo "0")
+        local complain_count; complain_count=$(aa-status 2>/dev/null | grep -c "complain" || echo "0")
+        echo -e "  Enforce mode:  ${enforce_count} profiles"
+        echo -e "  Complain mode: ${YELLOW}${complain_count}${NC} profiles"
+        echo -e "  Planned: Set all complain → enforce"
+    elif [[ "$OS" == "macos" ]]; then
+        echo -e "  macOS: Will audit apps for Sandbox entitlements"
+        echo -e "  ${DIM}Informational only — no system changes${NC}"
+    fi
+}
+
+mod_apparmor_enforce() {
+    local desc="AppArmor / App Sandbox enforcement"
+    if [[ "$OS" == "macos" ]]; then
+        if ! vet_advanced_module "App Sandbox Audit" \
+            "Audits apps for Sandbox entitlements. Informational only." \
+            "preview_apparmor_enforce"; then
+            MODULE_RESULT="skipped"; return
+        fi
+        local non_hardened=0
+        while IFS= read -r app; do
+            if ! codesign -d --entitlements - "$app" 2>/dev/null | grep -q "com.apple.security.app-sandbox"; then
+                ((non_hardened++))
+            fi
+        done < <(find /Applications -maxdepth 2 -name "*.app" -type d 2>/dev/null)
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (${non_hardened} non-sandboxed)" "applied"
+        log_entry "apparmor-enforce" "audit" "applied" "${non_hardened} non-sandboxed apps"
+        MODULE_RESULT="applied"
+        return
+    fi
+    if [[ "$OS" != "linux" ]]; then
+        MODULE_RESULT="skipped_unsupported"; return
+    fi
+    if ! command -v aa-status &>/dev/null; then
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (not installed)" "failed"
+        log_entry "apparmor-enforce" "check" "failed" "AppArmor not installed"
+        MODULE_RESULT="failed"; return
+    fi
+    check_apparmor_enforce
+    if [[ "$CHECK_STATUS" == "PASS" ]]; then
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
+        MODULE_RESULT="skipped"; return
+    fi
+    if ! vet_advanced_module "AppArmor Enforce Mode" \
+        "Sets all profiles to enforce. Risk: may block legitimate apps." \
+        "preview_apparmor_enforce"; then
+        MODULE_RESULT="skipped"; return
+    fi
+    local complain_profiles; complain_profiles=$(aa-status 2>/dev/null | awk '/complain/{ print $1 }')
+    state_set_module "apparmor-enforce" "applied" "$complain_profiles"
+    aa-enforce /etc/apparmor.d/* &>/dev/null
+    print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
+    log_entry "apparmor-enforce" "apply" "applied" "All profiles set to enforce"
+    MODULE_RESULT="applied"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# MODULE: boot-security (ADVANCED — Linux + macOS)
+# ═══════════════════════════════════════════════════════════════════
+preview_boot_security() {
+    if [[ "$OS" == "macos" ]]; then
+        echo -e "  SIP Status: $(csrutil status 2>/dev/null || echo 'Unknown')"
+        echo -e "  ${DIM}macOS: Verification only — no changes${NC}"
+    elif [[ "$OS" == "linux" ]]; then
+        echo -e "  Secure Boot: $(mokutil --sb-state 2>/dev/null || echo 'Cannot determine')"
+        if grep -q "set superusers" /etc/grub.d/40_custom 2>/dev/null; then
+            echo -e "  GRUB password: ${GREEN}Configured${NC}"
+        else
+            echo -e "  GRUB password: ${YELLOW}Not set${NC} — will configure"
+        fi
+    fi
+}
+
+mod_boot_security() {
+    local desc="Boot security verification"
+    if [[ "$OS" == "macos" ]]; then
+        if ! vet_advanced_module "Boot Security Verification" \
+            "Verifies SIP and authenticated root. Informational only on macOS." \
+            "preview_boot_security"; then
+            MODULE_RESULT="skipped"; return
+        fi
+        if csrutil status 2>/dev/null | grep -q "enabled"; then
+            print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (SIP enabled)" "applied"
+            log_entry "boot-security" "check" "applied" "SIP verified"
+            MODULE_RESULT="applied"
+        else
+            print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (SIP disabled)" "manual"
+            log_entry "boot-security" "check" "manual" "SIP disabled"
+            pause_guide "Enable SIP: Restart in Recovery Mode > Terminal > csrutil enable"
+            MODULE_RESULT="manual"
+        fi
+        return
+    fi
+    if [[ "$OS" != "linux" ]]; then
+        MODULE_RESULT="skipped_unsupported"; return
+    fi
+    if grep -q "set superusers" /etc/grub.d/40_custom 2>/dev/null; then
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (GRUB password set)" "skipped"
+        MODULE_RESULT="skipped"; return
+    fi
+    if ! vet_advanced_module "Boot Security Hardening" \
+        "Sets GRUB password. Risk: required at boot menu." \
+        "preview_boot_security"; then
+        MODULE_RESULT="skipped"; return
+    fi
+    echo -ne "  ${BOLD}Enter GRUB boot password:${NC} "
+    read -rs grub_pass; echo ""
+    local grub_hash; grub_hash=$(echo -e "${grub_pass}\n${grub_pass}" | grub-mkpasswd-pbkdf2 2>/dev/null | grep "grub.pbkdf2" | awk '{print $NF}')
+    if [[ -n "$grub_hash" ]]; then
+        [[ -f /etc/grub.d/40_custom ]] && cp /etc/grub.d/40_custom /etc/grub.d/40_custom.bak.hardening
+        cat >> /etc/grub.d/40_custom << GRUBEOF
+# Added by harden.sh v${VERSION}
+set superusers="admin"
+password_pbkdf2 admin ${grub_hash}
+GRUBEOF
+        update-grub &>/dev/null || grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
+        state_set_module "boot-security" "applied" "grub-password-set"
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (GRUB password set)" "applied"
+        log_entry "boot-security" "apply" "applied" "GRUB password configured"
+        MODULE_RESULT="applied"
+    else
+        print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "failed"
+        log_entry "boot-security" "apply" "failed" "Could not generate GRUB hash"
+        MODULE_RESULT="failed"
     fi
 }
 
