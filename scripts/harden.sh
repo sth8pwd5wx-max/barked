@@ -62,6 +62,70 @@ QUIET_MODE=false
 ACCEPT_ADVANCED=false
 AUTO_PROFILE=""              # profile name for --auto mode
 
+# Clean mode
+CLEAN_MODE=false
+CLEAN_FORCE=false
+
+# Clean log
+CLEAN_LOG_FILE="${SCRIPT_DIR}/../audits/clean-log-${DATE}.txt"
+
+# Clean category toggles (1=selected, 0=not)
+declare -A CLEAN_CATEGORIES=(
+    [system-caches]=0
+    [user-caches]=0
+    [browser-data]=0
+    [privacy-traces]=0
+    [dev-cruft]=0
+    [trash-downloads]=0
+    [mail-messages]=0
+)
+
+# Clean target toggles (1=selected, 0=not)
+declare -A CLEAN_TARGETS=()
+
+# Clean results tracking
+declare -A CLEAN_SCAN_FILES=()    # target -> file count
+declare -A CLEAN_SCAN_BYTES=()    # target -> byte count
+declare -A CLEAN_RESULT_FILES=()  # target -> files removed
+declare -A CLEAN_RESULT_BYTES=()  # target -> bytes freed
+declare -A CLEAN_RESULT_STATUS=() # target -> pass|fail|skip|partial
+declare -a CLEAN_LOG=()           # log lines for clean-log file
+
+# Cleanliness severity map
+declare -A CLEAN_SEVERITY=(
+    [system-cache]="MEDIUM"
+    [system-logs]="MEDIUM"
+    [diagnostic-reports]="LOW"
+    [dns-cache]="MEDIUM"
+    [user-cache]="HIGH"
+    [user-logs]="HIGH"
+    [saved-app-state]="HIGH"
+    [safari]="CRITICAL"
+    [chrome]="CRITICAL"
+    [firefox]="CRITICAL"
+    [arc]="CRITICAL"
+    [edge]="CRITICAL"
+    [recent-items]="CRITICAL"
+    [quicklook-thumbs]="HIGH"
+    [ds-store]="LOW"
+    [clipboard]="CRITICAL"
+    [search-metadata]="CRITICAL"
+    [xcode-derived]="MEDIUM"
+    [homebrew-cache]="MEDIUM"
+    [npm-cache]="MEDIUM"
+    [yarn-cache]="MEDIUM"
+    [pip-cache]="MEDIUM"
+    [cargo-cache]="MEDIUM"
+    [go-cache]="MEDIUM"
+    [cocoapods-cache]="MEDIUM"
+    [docker-cruft]="MEDIUM"
+    [ide-caches]="MEDIUM"
+    [trash]="LOW"
+    [old-downloads]="LOW"
+    [mail-cache]="HIGH"
+    [messages-attachments]="HIGH"
+)
+
 # State file locations
 STATE_FILE_SYSTEM="/etc/hardening-state.json"
 STATE_FILE_PROJECT="${SCRIPT_DIR}/../state/hardening-state.json"
@@ -4619,6 +4683,12 @@ parse_args() {
             --accept-advanced)
                 ACCEPT_ADVANCED=true
                 ;;
+            --clean|-c)
+                CLEAN_MODE=true
+                ;;
+            --force)
+                CLEAN_FORCE=true
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -4626,11 +4696,13 @@ parse_args() {
                 echo "  --uninstall, -u        Revert all hardening changes"
                 echo "  --modify, -m           Add or remove individual modules"
                 echo "  --audit                Score system security without making changes"
+                echo "  --clean, -c            Run system cleaner"
                 echo "  --dry-run              Show what would be changed without applying"
                 echo "  --auto                 Run non-interactively (requires --profile)"
                 echo "  --profile <name>       Set security profile: standard, high, paranoid"
                 echo "  --quiet, -q            Suppress interactive output (requires --auto or --audit)"
                 echo "  --accept-advanced      Accept all advanced hardening prompts"
+                echo "  --force                Skip confirmation prompt (use with --clean)"
                 echo "  --help, -h             Show this help"
                 echo ""
                 echo "Examples:"
@@ -4673,6 +4745,24 @@ parse_args() {
         echo -e "${RED}Error: --quiet requires --auto or --audit${NC}"
         exit 1
     fi
+
+    # Validation: --force requires --clean
+    if [[ "$CLEAN_FORCE" == true && "$CLEAN_MODE" != true ]]; then
+        echo -e "${RED}Error: --force requires --clean${NC}"
+        exit 1
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER
+# ═══════════════════════════════════════════════════════════════════
+run_clean() {
+    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}${BOLD}          SYSTEM CLEANER v${VERSION}                 ${NC}${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}          macOS / Linux                           ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${DIM}(coming soon)${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -4688,6 +4778,12 @@ main() {
     # ── Audit-only mode: score and exit ──
     if [[ "$AUDIT_MODE" == true ]]; then
         run_audit
+        exit 0
+    fi
+
+    # ── Clean mode: system cleaner ──
+    if [[ "$CLEAN_MODE" == true ]]; then
+        run_clean
         exit 0
     fi
 
