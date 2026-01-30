@@ -5,6 +5,12 @@
 # Run: Right-click PowerShell > Run as Administrator > .\harden.ps1
 # ═══════════════════════════════════════════════════════════════════
 
+param(
+    [switch]$Uninstall,
+    [switch]$Modify,
+    [switch]$Help
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
@@ -27,10 +33,28 @@ $script:CountApplied = 0
 $script:CountSkipped = 0
 $script:CountFailed = 0
 $script:CountManual = 0
+$script:CountReverted = 0
 $script:EnabledModules = @()
 $script:LogEntries = @()
 $script:ManualSteps = @()
 $script:ModuleResult = ""
+
+# Run mode: harden, uninstall, modify
+$script:RunMode = "harden"
+$script:ModuleMode = "apply"
+$script:RemovePackages = $false
+
+# State file paths
+$script:StateFileSystem = "C:\ProgramData\hardening-state.json"
+$script:StateFileProject = Join-Path (Split-Path $script:ScriptDir) "state\hardening-state.json"
+$script:StateData = @{
+    version = "1.0.0"
+    last_run = ""
+    os = "windows"
+    profile = ""
+    modules = @{}
+    packages_installed = @()
+}
 
 # Questionnaire answers
 $script:QThreat = ""
@@ -92,6 +116,7 @@ function Print-Status {
         "skipped"  { Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(already applied)" DarkGray }
         "failed"   { Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(failed)" Red }
         "manual"   { Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(manual)" Yellow }
+        "reverted"  { Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(reverted)" DarkGray }
         "skipped_unsupported" { Write-Host "  " -NoNewline; Write-Color "–" DarkGray; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(not available on Windows)" DarkGray }
     }
 }
@@ -140,6 +165,446 @@ function Pause-Guide {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# STATE FILE I/O
+# ═══════════════════════════════════════════════════════════════════
+function Read-State {
+    $loaded = $false
+    foreach ($path in @($script:StateFileSystem, $script:StateFileProject)) {
+        if (Test-Path $path) {
+            try {
+                $json = Get-Content $path -Raw | ConvertFrom-Json
+                $script:StateData.version = if ($json.version) { $json.version } else { "1.0.0" }
+                $script:StateData.last_run = if ($json.last_run) { $json.last_run } else { "" }
+                $script:StateData.os = if ($json.os) { $json.os } else { "windows" }
+                $script:StateData.profile = if ($json.profile) { $json.profile } else { "" }
+                $script:StateData.modules = @{}
+                if ($json.modules) {
+                    $json.modules.PSObject.Properties | ForEach-Object {
+                        $script:StateData.modules[$_.Name] = @{
+                            status = $_.Value.status
+                            applied_at = $_.Value.applied_at
+                            previous_value = $_.Value.previous_value
+                        }
+                    }
+                }
+                $script:StateData.packages_installed = @()
+                if ($json.packages_installed) {
+                    $script:StateData.packages_installed = @($json.packages_installed)
+                }
+                $loaded = $true
+                break
+            } catch {
+                Log-Entry "state" "read" "warn" "Could not parse state file $path"
+            }
+        }
+    }
+    return $loaded
+}
+
+function Write-State {
+    $script:StateData.last_run = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+    $script:StateData.profile = $script:Profile
+
+    # Build output object
+    $output = [ordered]@{
+        version = $script:StateData.version
+        last_run = $script:StateData.last_run
+        os = $script:StateData.os
+        profile = $script:StateData.profile
+        modules = [ordered]@{}
+        packages_installed = $script:StateData.packages_installed
+    }
+    foreach ($key in ($script:StateData.modules.Keys | Sort-Object)) {
+        $mod = $script:StateData.modules[$key]
+        $output.modules[$key] = [ordered]@{
+            status = $mod.status
+            applied_at = $mod.applied_at
+            previous_value = $mod.previous_value
+        }
+    }
+
+    $json = $output | ConvertTo-Json -Depth 4
+
+    # Write to system location
+    try {
+        $json | Out-File -FilePath $script:StateFileSystem -Encoding UTF8 -Force
+    } catch {
+        Log-Entry "state" "write" "warn" "Could not write system state: $_"
+    }
+
+    # Write to project location
+    try {
+        $stateDir = Split-Path $script:StateFileProject
+        if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
+        $json | Out-File -FilePath $script:StateFileProject -Encoding UTF8 -Force
+    } catch {
+        Log-Entry "state" "write" "warn" "Could not write project state: $_"
+    }
+}
+
+function Set-ModuleState {
+    param([string]$ModId, [string]$Status, [string]$PreviousValue = $null)
+    $script:StateData.modules[$ModId] = @{
+        status = $Status
+        applied_at = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+        previous_value = $PreviousValue
+    }
+}
+
+function Add-StatePackage {
+    param([string]$PkgName)
+    if ($script:StateData.packages_installed -notcontains $PkgName) {
+        $script:StateData.packages_installed += $PkgName
+    }
+}
+
+function Remove-StatePackage {
+    param([string]$PkgName)
+    $script:StateData.packages_installed = @($script:StateData.packages_installed | Where-Object { $_ -ne $PkgName })
+}
+
+function Get-AppliedModules {
+    $applied = @()
+    foreach ($key in $script:StateData.modules.Keys) {
+        if ($script:StateData.modules[$key].status -eq "applied") {
+            $applied += $key
+        }
+    }
+    return $applied
+}
+
+function Get-AppliedCount {
+    return @(Get-AppliedModules).Count
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# LIVE DETECTION (fallback when no state file)
+# ═══════════════════════════════════════════════════════════════════
+function Detect-AppliedModules {
+    $detected = @{}
+
+    # disk-encrypt
+    try {
+        $bl = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop
+        if ($bl.ProtectionStatus -eq "On") { $detected["disk-encrypt"] = $true }
+    } catch {}
+
+    # firewall-inbound
+    $profiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    if ($profiles) {
+        $allEnabled = ($profiles | Where-Object { $_.Enabled -eq $false }).Count -eq 0
+        $allBlock = ($profiles | Where-Object { $_.DefaultInboundAction -eq "Block" }).Count -eq $profiles.Count
+        if ($allEnabled -and $allBlock) { $detected["firewall-inbound"] = $true }
+    }
+
+    # firewall-stealth
+    if (Get-NetFirewallRule -DisplayName "Harden-Block-ICMPv4-In" -ErrorAction SilentlyContinue) {
+        $detected["firewall-stealth"] = $true
+    }
+
+    # firewall-outbound
+    if ($profiles) {
+        $allDenyOut = ($profiles | Where-Object { $_.DefaultOutboundAction -eq "Block" }).Count -eq $profiles.Count
+        if ($allDenyOut) { $detected["firewall-outbound"] = $true }
+    }
+
+    # dns-secure
+    $adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } -ErrorAction SilentlyContinue
+    if ($adapters) {
+        $allQuad9 = $true
+        foreach ($a in $adapters) {
+            $dns = Get-DnsClientServerAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            if ($dns.ServerAddresses -notcontains "9.9.9.9") { $allQuad9 = $false; break }
+        }
+        if ($allQuad9) { $detected["dns-secure"] = $true }
+    }
+
+    # auto-updates
+    try {
+        $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+        $current = Get-ItemProperty -Path $regPath -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+        if ($null -eq $current -or $current.NoAutoUpdate -eq 0) { $detected["auto-updates"] = $true }
+    } catch { $detected["auto-updates"] = $true }
+
+    # guest-disable
+    try {
+        $guest = Get-LocalUser -Name "Guest" -ErrorAction SilentlyContinue
+        if ($null -eq $guest -or $guest.Enabled -eq $false) { $detected["guest-disable"] = $true }
+    } catch {}
+
+    # lock-screen
+    $ssRegPath = "HKCU:\Control Panel\Desktop"
+    $lock = (Get-ItemProperty -Path $ssRegPath -Name "ScreenSaverIsSecure" -ErrorAction SilentlyContinue).ScreenSaverIsSecure
+    $timeout = (Get-ItemProperty -Path $ssRegPath -Name "ScreenSaveTimeOut" -ErrorAction SilentlyContinue).ScreenSaveTimeOut
+    if ($lock -eq "1" -and $null -ne $timeout -and [int]$timeout -le 300) { $detected["lock-screen"] = $true }
+
+    # browser-basic
+    $edgePath = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+    $edgeTP = (Get-ItemProperty -Path $edgePath -Name "TrackingPrevention" -ErrorAction SilentlyContinue).TrackingPrevention
+    if ($edgeTP -eq 3) { $detected["browser-basic"] = $true }
+
+    # hostname-scrub
+    if ($env:COMPUTERNAME -eq "DESKTOP-PC") { $detected["hostname-scrub"] = $true }
+
+    # ssh-harden
+    $sshConfig = Join-Path $script:RealHome ".ssh\config"
+    if ((Test-Path $sshConfig) -and (Select-String -Path $sshConfig -Pattern "IdentitiesOnly yes" -Quiet -ErrorAction SilentlyContinue)) {
+        $detected["ssh-harden"] = $true
+    }
+
+    # git-harden
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $signing = & git config --global --get commit.gpgsign 2>$null
+        if ($signing -eq "true") { $detected["git-harden"] = $true }
+    }
+
+    # telemetry-disable
+    $diagTrack = Get-Service -Name "DiagTrack" -ErrorAction SilentlyContinue
+    if ($diagTrack -and $diagTrack.StartType -eq "Disabled") { $detected["telemetry-disable"] = $true }
+
+    # monitoring-tools
+    $sysmon = Get-Service -Name "Sysmon*" -ErrorAction SilentlyContinue
+    if ($sysmon -and $sysmon.Status -eq "Running") { $detected["monitoring-tools"] = $true }
+
+    # permissions-audit — read-only, skip detection
+
+    # browser-fingerprint
+    $ffProfileRoot = Join-Path $script:RealHome "AppData\Roaming\Mozilla\Firefox\Profiles"
+    $ffProfile = Get-ChildItem -Path $ffProfileRoot -Filter "*.default-release" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($ffProfile) {
+        $userJs = Join-Path $ffProfile.FullName "user.js"
+        if ((Test-Path $userJs) -and (Select-String -Path $userJs -Pattern "privacy.resistFingerprinting" -Quiet -ErrorAction SilentlyContinue)) {
+            $detected["browser-fingerprint"] = $true
+        }
+    }
+
+    # metadata-strip
+    if (Get-Command exiftool -ErrorAction SilentlyContinue) { $detected["metadata-strip"] = $true }
+
+    # audit-script
+    $task = Get-ScheduledTask -TaskName "SecurityWeeklyAudit" -ErrorAction SilentlyContinue
+    if ($task) { $detected["audit-script"] = $true }
+
+    # bluetooth-disable
+    $btService = Get-Service -Name "bthserv" -ErrorAction SilentlyContinue
+    if ($btService -and $btService.Status -eq "Stopped" -and $btService.StartType -eq "Disabled") {
+        $detected["bluetooth-disable"] = $true
+    }
+
+    # Populate state from detection
+    foreach ($modId in $detected.Keys) {
+        if (-not $script:StateData.modules.ContainsKey($modId)) {
+            $script:StateData.modules[$modId] = @{
+                status = "applied"
+                applied_at = "unknown"
+                previous_value = $null
+            }
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# PACKAGE UNINSTALL HELPER
+# ═══════════════════════════════════════════════════════════════════
+function Uninstall-Pkg {
+    param([string]$WingetId, [string]$ChocoName, [string]$ScoopName)
+    $mgr = Get-PkgManager
+    switch ($mgr) {
+        "winget" { winget uninstall --id $WingetId --silent 2>$null }
+        "choco"  { choco uninstall $ChocoName -y 2>$null }
+        "scoop"  { scoop uninstall $ScoopName 2>$null }
+        default  { return $false }
+    }
+    return $true
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# INTERACTIVE MODULE PICKER (arrow-key / spacebar)
+# ═══════════════════════════════════════════════════════════════════
+$script:AllModuleIds = @(
+    "disk-encrypt", "firewall-inbound", "firewall-stealth", "firewall-outbound",
+    "dns-secure", "vpn-killswitch", "hostname-scrub",
+    "mac-rotate", "telemetry-disable", "traffic-obfuscation", "metadata-strip",
+    "browser-basic", "browser-fingerprint",
+    "guest-disable", "lock-screen", "bluetooth-disable",
+    "git-harden", "dev-isolation",
+    "ssh-harden",
+    "monitoring-tools", "permissions-audit", "audit-script",
+    "auto-updates", "backup-guidance", "border-prep"
+)
+
+$script:AllModuleLabels = @(
+    "disk-encrypt        - BitLocker verification"
+    "firewall-inbound    - Block all incoming connections"
+    "firewall-stealth    - Stealth mode / drop ICMP"
+    "firewall-outbound   - Outbound firewall (WF rules)"
+    "dns-secure          - Encrypted DNS (Quad9)"
+    "vpn-killswitch      - VPN always-on, block non-VPN traffic"
+    "hostname-scrub      - Generic hostname"
+    "mac-rotate          - MAC address randomization"
+    "telemetry-disable   - OS and browser telemetry off"
+    "traffic-obfuscation - DAITA, Tor guidance"
+    "metadata-strip      - exiftool"
+    "browser-basic       - Block trackers, HTTPS-only"
+    "browser-fingerprint - Resist fingerprinting, clear-on-quit"
+    "guest-disable       - Disable guest account"
+    "lock-screen         - Screen timeout, password required"
+    "bluetooth-disable   - Disable when unused"
+    "git-harden          - SSH signing, credential helper"
+    "dev-isolation       - Docker/WSL hardening"
+    "ssh-harden          - Ed25519 keys, strict config"
+    "monitoring-tools    - Sysmon / audit policy"
+    "permissions-audit   - List granted permissions"
+    "audit-script        - Weekly automated audit"
+    "auto-updates        - Automatic security updates"
+    "backup-guidance     - Encrypted backup strategy"
+    "border-prep         - Travel protocol, nuke checklist"
+)
+
+# Category groups: name, startIndex, count
+$script:AllModuleGroups = @(
+    @{ name = "DISK & BOOT";           start = 0;  count = 1 }
+    @{ name = "FIREWALL";              start = 1;  count = 3 }
+    @{ name = "NETWORK & DNS";         start = 4;  count = 3 }
+    @{ name = "PRIVACY & OBFUSCATION"; start = 7;  count = 4 }
+    @{ name = "BROWSER";               start = 11; count = 2 }
+    @{ name = "ACCESS CONTROL";        start = 13; count = 3 }
+    @{ name = "DEV TOOLS";             start = 16; count = 2 }
+    @{ name = "AUTH & SSH";            start = 18; count = 1 }
+    @{ name = "MONITORING";            start = 19; count = 3 }
+    @{ name = "MAINTENANCE";           start = 22; count = 3 }
+)
+
+function Interactive-Picker {
+    # Build display list: items with category headers
+    # Returns two arrays: $script:PickerAdd (modules to add) and $script:PickerRemove (modules to remove)
+    $script:PickerAdd = @()
+    $script:PickerRemove = @()
+
+    $total = $script:AllModuleIds.Count
+    $checked = @{}
+    $originalState = @{}
+
+    # Initialize from current state
+    for ($i = 0; $i -lt $total; $i++) {
+        $modId = $script:AllModuleIds[$i]
+        $isApplied = $script:StateData.modules.ContainsKey($modId) -and $script:StateData.modules[$modId].status -eq "applied"
+        $checked[$i] = $isApplied
+        $originalState[$i] = $isApplied
+    }
+
+    # Build display lines (headers + items)
+    $displayLines = @()   # Each: @{ type="header"|"item"; text="..."; itemIndex=-1|N }
+    foreach ($group in $script:AllModuleGroups) {
+        $displayLines += @{ type = "header"; text = "  $($group.name)"; itemIndex = -1 }
+        for ($j = $group.start; $j -lt ($group.start + $group.count); $j++) {
+            $displayLines += @{ type = "item"; text = $script:AllModuleLabels[$j]; itemIndex = $j }
+        }
+    }
+
+    $cursorPos = 0
+    # Find first selectable item
+    while ($cursorPos -lt $displayLines.Count -and $displayLines[$cursorPos].type -ne "item") { $cursorPos++ }
+
+    # Print header
+    Write-Host ""
+    Write-ColorLine "═══ Modify Hardening ═══" White
+    Write-Host ""
+    Write-ColorLine "  Use ↑↓ to navigate, SPACE to toggle, ENTER to apply changes, Q to cancel." DarkGray
+    Write-ColorLine "  Modules marked [✓] are currently applied." DarkGray
+    Write-Host ""
+
+    $startRow = [Console]::CursorTop
+
+    # Draw initial list
+    function Draw-List {
+        [Console]::SetCursorPosition(0, $startRow)
+        for ($d = 0; $d -lt $displayLines.Count; $d++) {
+            $line = $displayLines[$d]
+            if ($line.type -eq "header") {
+                Write-Host ""
+                $isSelected = ($d -eq $cursorPos)
+                if ($isSelected) {
+                    Write-Host "  " -NoNewline
+                    Write-ColorLine $line.text Cyan
+                } else {
+                    Write-Host "  " -NoNewline
+                    Write-ColorLine $line.text Yellow
+                }
+            } else {
+                $idx = $line.itemIndex
+                $isSelected = ($d -eq $cursorPos)
+                $mark = if ($checked[$idx]) { "[✓]" } else { "[ ]" }
+                $markColor = if ($checked[$idx]) { "Green" } else { "DarkGray" }
+
+                if ($isSelected) {
+                    Write-Host "  > " -NoNewline -ForegroundColor Cyan
+                    Write-Color $mark $markColor
+                    Write-Host " $($line.text)" -ForegroundColor White
+                } else {
+                    Write-Host "    " -NoNewline
+                    Write-Color $mark $markColor
+                    Write-Host " $($line.text)" -ForegroundColor Gray
+                }
+            }
+        }
+        Write-Host ""
+        Write-Host "                                                                              "
+    }
+
+    Draw-List
+
+    # Input loop
+    while ($true) {
+        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        if ($key.VirtualKeyCode -eq 38) {
+            # Up arrow
+            $prev = $cursorPos - 1
+            while ($prev -ge 0 -and $displayLines[$prev].type -ne "item") { $prev-- }
+            if ($prev -ge 0) { $cursorPos = $prev }
+            Draw-List
+        }
+        elseif ($key.VirtualKeyCode -eq 40) {
+            # Down arrow
+            $next = $cursorPos + 1
+            while ($next -lt $displayLines.Count -and $displayLines[$next].type -ne "item") { $next++ }
+            if ($next -lt $displayLines.Count) { $cursorPos = $next }
+            Draw-List
+        }
+        elseif ($key.Character -eq ' ') {
+            # Space — toggle
+            if ($displayLines[$cursorPos].type -eq "item") {
+                $idx = $displayLines[$cursorPos].itemIndex
+                $checked[$idx] = -not $checked[$idx]
+            }
+            Draw-List
+        }
+        elseif ($key.VirtualKeyCode -eq 13) {
+            # Enter — apply changes
+            break
+        }
+        elseif ($key.Character -eq 'q' -or $key.Character -eq 'Q') {
+            # Cancel
+            Write-Host ""
+            Write-ColorLine "  Cancelled." Yellow
+            return $false
+        }
+    }
+
+    # Compute adds and removes
+    for ($i = 0; $i -lt $total; $i++) {
+        if ($checked[$i] -and -not $originalState[$i]) {
+            $script:PickerAdd += $script:AllModuleIds[$i]
+        }
+        elseif (-not $checked[$i] -and $originalState[$i]) {
+            $script:PickerRemove += $script:AllModuleIds[$i]
+        }
+    }
+    return $true
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # PRIVILEGE CHECK
 # ═══════════════════════════════════════════════════════════════════
 function Check-Privileges {
@@ -181,17 +646,31 @@ function Install-Pkg {
 # ═══════════════════════════════════════════════════════════════════
 function Select-Profile {
     Print-Section "Profile Selection"
-    $choice = Prompt-Choice "Select a hardening profile:" @(
-        "Standard  — Encrypted disk, firewall, secure DNS, auto-updates, basic browser hardening"
-        "High      — Standard + outbound firewall, hostname scrubbing, monitoring tools, SSH hardening, telemetry disabled"
-        "Paranoid  — High + MAC rotation, traffic obfuscation, VPN kill switch, full audit system, metadata stripping, border crossing prep"
-        "Advanced  — Custom questionnaire (choose per-category)"
-    )
-    switch ($choice) {
-        0 { $script:Profile = "standard" }
-        1 { $script:Profile = "high" }
-        2 { $script:Profile = "paranoid" }
-        3 { $script:Profile = "advanced"; Run-Questionnaire }
+    Write-ColorLine "Select a hardening profile:" White
+    Write-Host ""
+    Write-Host "  " -NoNewline; Write-Color "[1]" Cyan; Write-Host " Standard  — Encrypted disk, firewall, secure DNS, auto-updates, basic browser hardening"
+    Write-Host "  " -NoNewline; Write-Color "[2]" Cyan; Write-Host " High      — Standard + outbound firewall, hostname scrubbing, monitoring tools, SSH hardening, telemetry disabled"
+    Write-Host "  " -NoNewline; Write-Color "[3]" Cyan; Write-Host " Paranoid  — High + MAC rotation, traffic obfuscation, VPN kill switch, full audit system, metadata stripping, border crossing prep"
+    Write-Host "  " -NoNewline; Write-Color "[4]" Cyan; Write-Host " Advanced  — Custom questionnaire (choose per-category)"
+    Write-Host ""
+    Write-Host "  " -NoNewline; Write-Color "[M]" Magenta; Write-Host " Modify    — Add or remove individual modules"
+    Write-Host "  " -NoNewline; Write-Color "[U]" Red;     Write-Host " Uninstall — Remove all hardening changes"
+    Write-Host "  " -NoNewline; Write-Color "[Q]" DarkGray; Write-Host " Quit"
+    Write-Host ""
+    while ($true) {
+        Write-Host "  Choice: " -NoNewline -ForegroundColor White
+        $choice = Read-Host
+        switch ($choice) {
+            "1" { $script:Profile = "standard"; break }
+            "2" { $script:Profile = "high"; break }
+            "3" { $script:Profile = "paranoid"; break }
+            "4" { $script:Profile = "advanced"; Run-Questionnaire; break }
+            { $_ -eq "M" -or $_ -eq "m" } { $script:RunMode = "modify"; return }
+            { $_ -eq "U" -or $_ -eq "u" } { $script:RunMode = "uninstall"; return }
+            { $_ -eq "Q" -or $_ -eq "q" } { Write-Host "Exiting."; exit 0 }
+            default { Write-ColorLine "  Invalid choice. Enter 1-4, M, U, or Q." Red; continue }
+        }
+        break
     }
     Write-Host ""
     Write-Host "  Profile: " -NoNewline; Write-ColorLine $script:Profile White
@@ -371,18 +850,38 @@ function Build-ModuleList {
 # MODULE RUNNER
 # ═══════════════════════════════════════════════════════════════════
 function Run-Module {
-    param([string]$ModId)
+    param([string]$ModId, [string]$Mode = "apply")
     $script:CurrentModule++
-    $funcName = "Mod-$($ModId)"
+    $script:ModuleMode = $Mode
 
-    if (Get-Command $funcName -ErrorAction SilentlyContinue) {
-        & $funcName
+    if ($Mode -eq "revert") {
+        $funcName = "Revert-$($ModId)"
+        if (Get-Command $funcName -ErrorAction SilentlyContinue) {
+            & $funcName
+        } else {
+            Print-Status $script:CurrentModule $script:TotalModules $ModId "skipped"
+            $script:ModuleResult = "skipped"
+        }
     } else {
-        $script:ModuleResult = "skipped_unsupported"
+        $funcName = "Mod-$($ModId)"
+        if (Get-Command $funcName -ErrorAction SilentlyContinue) {
+            & $funcName
+        } else {
+            $script:ModuleResult = "skipped_unsupported"
+        }
     }
 
     switch ($script:ModuleResult) {
-        "applied"  { $script:CountApplied++ }
+        "applied"  {
+            $script:CountApplied++
+            if ($Mode -eq "apply") {
+                # Only set state if the module didn't already set it (with previous_value)
+                if (-not $script:StateData.modules.ContainsKey($ModId) -or $script:StateData.modules[$ModId].status -ne "applied") {
+                    Set-ModuleState $ModId "applied"
+                }
+            }
+        }
+        "reverted" { $script:CountReverted++; Set-ModuleState $ModId "reverted" }
         "skipped"  { $script:CountSkipped++ }
         "failed"   { $script:CountFailed++ }
         "manual"   { $script:CountManual++ }
@@ -477,6 +976,15 @@ function Mod-dns-secure {
     }
 
     try {
+        # Capture previous DNS for state
+        $prevDns = @()
+        foreach ($adapter in $adapters) {
+            $dns = Get-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            if ($dns.ServerAddresses) { $prevDns += ($dns.ServerAddresses -join ",") }
+        }
+        $prevDnsStr = ($prevDns | Select-Object -Unique) -join ";"
+        Set-ModuleState "dns-secure" "applied" $prevDnsStr
+
         foreach ($adapter in $adapters) {
             Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses @("9.9.9.9","149.112.112.112") -ErrorAction Stop
         }
@@ -566,6 +1074,10 @@ function Mod-lock-screen {
             $script:ModuleResult = "skipped"
             return
         }
+
+        $prevTimeout = if ($currentTimeout) { $currentTimeout } else { "600" }
+        $prevLock = if ($currentLock) { $currentLock } else { "0" }
+        Set-ModuleState "lock-screen" "applied" "$prevTimeout,$prevLock"
 
         Set-ItemProperty -Path $ssRegPath -Name "ScreenSaveTimeOut" -Value "300" -ErrorAction Stop
         Set-ItemProperty -Path $ssRegPath -Name "ScreenSaverIsSecure" -Value "1" -ErrorAction Stop
@@ -749,9 +1261,10 @@ function Mod-hostname-scrub {
         return
     }
     try {
+        Set-ModuleState "hostname-scrub" "applied" $current
         Rename-Computer -NewName $generic -Force -ErrorAction Stop
         Print-Status $script:CurrentModule $script:TotalModules "$desc ($generic — reboot required)" "applied"
-        Log-Entry "hostname-scrub" "apply" "ok" "Hostname set to $generic (reboot required)"
+        Log-Entry "hostname-scrub" "apply" "ok" "Hostname set to $generic (was: $current, reboot required)"
         $script:ModuleResult = "applied"
     } catch {
         Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
@@ -1081,6 +1594,7 @@ function Mod-metadata-strip {
 
     $installed = Install-Pkg "OliverBetz.ExifTool" "exiftool" "exiftool"
     if ($installed -and (Get-Command exiftool -ErrorAction SilentlyContinue)) {
+        Add-StatePackage "exiftool"
         Print-Status $script:CurrentModule $script:TotalModules $desc "applied"
         Log-Entry "metadata-strip" "apply" "ok" "Installed exiftool"
         $script:ModuleResult = "applied"
@@ -1270,6 +1784,651 @@ function Mod-bluetooth-disable {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# REVERT FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+function Revert-disk-encrypt {
+    $desc = "Revert disk encryption"
+    Print-Status $script:CurrentModule $script:TotalModules $desc "manual"
+    Log-Entry "disk-encrypt" "revert" "manual" "Disk decryption is a major decision — not auto-reverted"
+    $script:ManualSteps += "Disable BitLocker: manage-bde -off C: (this will decrypt the entire drive)"
+    $script:ModuleResult = "manual"
+}
+
+function Revert-firewall-inbound {
+    $desc = "Revert inbound firewall"
+    try {
+        Set-NetFirewallProfile -Profile Domain,Public,Private -DefaultInboundAction Allow -ErrorAction Stop
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "firewall-inbound" "revert" "ok" "Default inbound set to Allow"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "firewall-inbound" "revert" "fail" "Could not revert firewall: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-firewall-stealth {
+    $desc = "Revert firewall stealth mode"
+    try {
+        Remove-NetFirewallRule -DisplayName "Harden-Block-ICMPv4-In" -ErrorAction SilentlyContinue
+        Remove-NetFirewallRule -DisplayName "Harden-Block-ICMPv6-In" -ErrorAction SilentlyContinue
+        # Re-enable LLMNR
+        $llmnrPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient"
+        Remove-ItemProperty -Path $llmnrPath -Name "EnableMulticast" -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "firewall-stealth" "revert" "ok" "Removed ICMP block rules + re-enabled LLMNR"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "firewall-stealth" "revert" "fail" "Could not revert stealth: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-firewall-outbound {
+    $desc = "Revert outbound firewall"
+    try {
+        Set-NetFirewallProfile -Profile Domain,Public,Private -DefaultOutboundAction Allow -ErrorAction Stop
+        # Remove Harden-Allow-Out rules
+        Get-NetFirewallRule -DisplayName "Harden-Allow-Out-*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "firewall-outbound" "revert" "ok" "Default outbound set to Allow, removed allow rules"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "firewall-outbound" "revert" "fail" "Could not revert outbound firewall: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-dns-secure {
+    $desc = "Revert DNS settings"
+    try {
+        $prev = $null
+        if ($script:StateData.modules.ContainsKey("dns-secure")) {
+            $prev = $script:StateData.modules["dns-secure"].previous_value
+        }
+        $adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" }
+        foreach ($adapter in $adapters) {
+            if ($prev -and $prev -ne "") {
+                # Restore previous DNS
+                $dnsServers = ($prev -split ";")[0] -split ","
+                Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServers -ErrorAction Stop
+            } else {
+                # Reset to DHCP
+                Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses -ErrorAction Stop
+            }
+        }
+        # Remove DoH entries
+        try {
+            Remove-DnsClientDohServerAddress -ServerAddress "9.9.9.9" -ErrorAction SilentlyContinue
+            Remove-DnsClientDohServerAddress -ServerAddress "149.112.112.112" -ErrorAction SilentlyContinue
+        } catch {}
+        $detail = if ($prev) { "to $prev" } else { "to DHCP" }
+        Print-Status $script:CurrentModule $script:TotalModules "$desc ($detail)" "reverted"
+        Log-Entry "dns-secure" "revert" "ok" "DNS reverted $detail"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "dns-secure" "revert" "fail" "Could not revert DNS: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-auto-updates {
+    $desc = "Revert automatic updates"
+    # Windows auto-updates are on by default; reverting means removing any policy we set
+    try {
+        $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+        Remove-ItemProperty -Path $regPath -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "auto-updates" "revert" "ok" "Removed update policy override (default behavior restored)"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "auto-updates" "revert" "ok" "No policy to remove"
+        $script:ModuleResult = "reverted"
+    }
+}
+
+function Revert-guest-disable {
+    $desc = "Re-enable Guest account"
+    try {
+        Enable-LocalUser -Name "Guest" -ErrorAction Stop
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "guest-disable" "revert" "ok" "Guest account re-enabled"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "guest-disable" "revert" "fail" "Could not re-enable Guest: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-lock-screen {
+    $desc = "Revert lock screen settings"
+    try {
+        $ssRegPath = "HKCU:\Control Panel\Desktop"
+        $prev = $null
+        if ($script:StateData.modules.ContainsKey("lock-screen")) {
+            $prev = $script:StateData.modules["lock-screen"].previous_value
+        }
+        if ($prev -and $prev -match ",") {
+            $parts = $prev -split ","
+            Set-ItemProperty -Path $ssRegPath -Name "ScreenSaveTimeOut" -Value $parts[0] -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $ssRegPath -Name "ScreenSaverIsSecure" -Value $parts[1] -ErrorAction SilentlyContinue
+        } else {
+            # OS defaults
+            Set-ItemProperty -Path $ssRegPath -Name "ScreenSaveTimeOut" -Value "600" -ErrorAction SilentlyContinue
+            Set-ItemProperty -Path $ssRegPath -Name "ScreenSaverIsSecure" -Value "0" -ErrorAction SilentlyContinue
+        }
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "InactivityTimeoutSecs" -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "lock-screen" "revert" "ok" "Lock screen settings restored"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "lock-screen" "revert" "fail" "Could not revert lock screen: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-browser-basic {
+    $desc = "Revert basic browser hardening"
+    try {
+        # Remove Firefox user.js (basic prefs)
+        $ffProfileRoot = Join-Path $script:RealHome "AppData\Roaming\Mozilla\Firefox\Profiles"
+        $ffProfile = Get-ChildItem -Path $ffProfileRoot -Filter "*.default-release" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($ffProfile) {
+            $userJs = Join-Path $ffProfile.FullName "user.js"
+            if (Test-Path $userJs) {
+                # Remove only if it starts with our marker
+                $content = Get-Content $userJs -Raw -ErrorAction SilentlyContinue
+                if ($content -match "Firefox Hardening") {
+                    Remove-Item $userJs -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        # Remove Edge policies
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Edge" -Name "TrackingPrevention" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Edge" -Name "AutomaticHttpsDefault" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Edge" -Name "SmartScreenEnabled" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Edge" -Name "PasswordManagerEnabled" -ErrorAction SilentlyContinue
+        # Remove Chrome policies
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "AutomaticHttpsDefault" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "SafeBrowsingProtectionLevel" -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "browser-basic" "revert" "ok" "Removed Firefox user.js + Edge/Chrome policies"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "browser-basic" "revert" "fail" "Could not revert browser: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-hostname-scrub {
+    $desc = "Revert hostname"
+    $prev = $null
+    if ($script:StateData.modules.ContainsKey("hostname-scrub")) {
+        $prev = $script:StateData.modules["hostname-scrub"].previous_value
+    }
+    if (-not $prev -or $prev -eq "") {
+        Print-Status $script:CurrentModule $script:TotalModules "$desc (no previous hostname stored)" "manual"
+        Log-Entry "hostname-scrub" "revert" "manual" "No previous hostname in state"
+        $script:ManualSteps += "Rename computer back to desired hostname: Rename-Computer -NewName 'YOUR-NAME' -Force"
+        $script:ModuleResult = "manual"
+        return
+    }
+    try {
+        Rename-Computer -NewName $prev -Force -ErrorAction Stop
+        Print-Status $script:CurrentModule $script:TotalModules "$desc (to $prev — reboot required)" "reverted"
+        Log-Entry "hostname-scrub" "revert" "ok" "Hostname set to $prev (reboot required)"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "hostname-scrub" "revert" "fail" "Could not rename computer: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-ssh-harden {
+    $desc = "Revert SSH configuration"
+    try {
+        $sshConfig = Join-Path $script:RealHome ".ssh\config"
+        if (Test-Path $sshConfig) {
+            Remove-Item $sshConfig -Force -ErrorAction Stop
+        }
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "ssh-harden" "revert" "ok" "Removed hardened SSH config"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "ssh-harden" "revert" "fail" "Could not revert SSH config: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-git-harden {
+    $desc = "Revert Git configuration"
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "skipped"
+        $script:ModuleResult = "skipped"
+        return
+    }
+    try {
+        & git config --global --unset gpg.format 2>$null
+        & git config --global --unset user.signingkey 2>$null
+        & git config --global --unset commit.gpgsign 2>$null
+        & git config --global --unset tag.gpgsign 2>$null
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "git-harden" "revert" "ok" "Removed Git signing + credential config"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "git-harden" "revert" "fail" "Could not revert Git config: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-telemetry-disable {
+    $desc = "Re-enable Windows telemetry"
+    try {
+        # Remove telemetry policy
+        $telPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
+        Remove-ItemProperty -Path $telPath -Name "AllowTelemetry" -ErrorAction SilentlyContinue
+        # Re-enable DiagTrack
+        Set-Service -Name "DiagTrack" -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name "DiagTrack" -ErrorAction SilentlyContinue
+        # Re-enable WAP Push
+        Set-Service -Name "dmwappushservice" -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name "dmwappushservice" -ErrorAction SilentlyContinue
+        # Re-enable Advertising ID
+        $adIdPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo"
+        Remove-ItemProperty -Path $adIdPath -Name "DisabledByGroupPolicy" -ErrorAction SilentlyContinue
+        # Re-enable activity history
+        $actPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\System"
+        Remove-ItemProperty -Path $actPath -Name "EnableActivityFeed" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $actPath -Name "PublishUserActivities" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $actPath -Name "UploadUserActivities" -ErrorAction SilentlyContinue
+        # Re-enable Cortana
+        $cortanaPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+        Remove-ItemProperty -Path $cortanaPath -Name "AllowCortana" -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "telemetry-disable" "revert" "ok" "Re-enabled telemetry, DiagTrack, advertising, Cortana"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "telemetry-disable" "revert" "fail" "Could not re-enable telemetry: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-monitoring-tools {
+    $desc = "Revert monitoring tools"
+    try {
+        # Revert audit policies to defaults
+        & auditpol /set /subcategory:"Logon" /success:disable /failure:disable 2>$null
+        & auditpol /set /subcategory:"Logoff" /success:disable 2>$null
+        & auditpol /set /subcategory:"Account Lockout" /success:disable /failure:disable 2>$null
+        & auditpol /set /subcategory:"Other Logon/Logoff Events" /success:disable /failure:disable 2>$null
+        & auditpol /set /subcategory:"Process Creation" /success:disable 2>$null
+        & auditpol /set /subcategory:"Credential Validation" /success:disable /failure:disable 2>$null
+        Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit" -Name "ProcessCreationIncludeCmdLine_Enabled" -ErrorAction SilentlyContinue
+        # Sysmon removal is manual
+        $sysmon = Get-Service -Name "Sysmon*" -ErrorAction SilentlyContinue
+        if ($sysmon) {
+            $script:ManualSteps += "Uninstall Sysmon: sysmon -u from an elevated prompt"
+        }
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "monitoring-tools" "revert" "ok" "Reverted audit policies"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "monitoring-tools" "revert" "fail" "Could not revert monitoring: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-permissions-audit {
+    $desc = "Revert permissions audit"
+    Print-Status $script:CurrentModule $script:TotalModules "$desc (read-only, nothing to revert)" "skipped"
+    Log-Entry "permissions-audit" "revert" "skip" "Read-only audit, nothing to revert"
+    $script:ModuleResult = "skipped"
+}
+
+function Revert-mac-rotate {
+    $desc = "Revert MAC address randomization"
+    Print-Status $script:CurrentModule $script:TotalModules $desc "manual"
+    Log-Entry "mac-rotate" "revert" "manual" "GUI setting, not script-managed"
+    $script:ManualSteps += "Disable MAC randomization: Settings > Network & Internet > Wi-Fi > Random hardware addresses: set to Off"
+    $script:ModuleResult = "manual"
+}
+
+function Revert-vpn-killswitch {
+    $desc = "Revert VPN kill switch"
+    $mullvad = Get-Command mullvad -ErrorAction SilentlyContinue
+    if ($mullvad) {
+        try {
+            & mullvad always-require-vpn set off 2>$null
+            Print-Status $script:CurrentModule $script:TotalModules "$desc (Mullvad)" "reverted"
+            Log-Entry "vpn-killswitch" "revert" "ok" "Mullvad always-require-vpn disabled"
+            $script:ModuleResult = "reverted"
+        } catch {
+            Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+            Log-Entry "vpn-killswitch" "revert" "fail" "Mullvad CLI error: $_"
+            $script:ModuleResult = "failed"
+        }
+    } else {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "manual"
+        Log-Entry "vpn-killswitch" "revert" "manual" "VPN app configuration, not script-managed"
+        $script:ManualSteps += "Disable VPN kill switch in your VPN application settings"
+        $script:ModuleResult = "manual"
+    }
+}
+
+function Revert-traffic-obfuscation {
+    $desc = "Revert traffic obfuscation"
+    Print-Status $script:CurrentModule $script:TotalModules "$desc (guidance-only, nothing to revert)" "skipped"
+    Log-Entry "traffic-obfuscation" "revert" "skip" "Guidance-only module"
+    $script:ModuleResult = "skipped"
+}
+
+function Revert-browser-fingerprint {
+    $desc = "Revert browser fingerprint resistance"
+    try {
+        $ffProfileRoot = Join-Path $script:RealHome "AppData\Roaming\Mozilla\Firefox\Profiles"
+        $ffProfile = Get-ChildItem -Path $ffProfileRoot -Filter "*.default-release" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($ffProfile) {
+            $userJs = Join-Path $ffProfile.FullName "user.js"
+            if (Test-Path $userJs) {
+                $content = Get-Content $userJs -Raw
+                # Remove fingerprint resistance block
+                $content = $content -replace "(?s)// Advanced Fingerprint Resistance.*?$", ""
+                if ($content.Trim() -eq "") {
+                    Remove-Item $userJs -Force -ErrorAction SilentlyContinue
+                } else {
+                    Set-Content -Path $userJs -Value $content.TrimEnd() -Encoding UTF8
+                }
+            }
+        }
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "browser-fingerprint" "revert" "ok" "Removed fingerprint resistance from user.js"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "browser-fingerprint" "revert" "fail" "Could not revert fingerprint settings: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-metadata-strip {
+    $desc = "Revert metadata stripping tools"
+    if ($script:RemovePackages -and (Get-Command exiftool -ErrorAction SilentlyContinue)) {
+        Uninstall-Pkg "OliverBetz.ExifTool" "exiftool" "exiftool"
+        Remove-StatePackage "exiftool"
+        Print-Status $script:CurrentModule $script:TotalModules "$desc (exiftool removed)" "reverted"
+        Log-Entry "metadata-strip" "revert" "ok" "Uninstalled exiftool"
+        $script:ModuleResult = "reverted"
+    } else {
+        Print-Status $script:CurrentModule $script:TotalModules "$desc (kept exiftool)" "reverted"
+        Log-Entry "metadata-strip" "revert" "ok" "Settings reverted, tools kept"
+        $script:ModuleResult = "reverted"
+    }
+}
+
+function Revert-dev-isolation {
+    $desc = "Revert development isolation"
+    Print-Status $script:CurrentModule $script:TotalModules "$desc (guidance-only, nothing to revert)" "skipped"
+    Log-Entry "dev-isolation" "revert" "skip" "Guidance-only module"
+    $script:ModuleResult = "skipped"
+}
+
+function Revert-audit-script {
+    $desc = "Revert weekly security audit"
+    try {
+        Unregister-ScheduledTask -TaskName "SecurityWeeklyAudit" -Confirm:$false -ErrorAction SilentlyContinue
+        $auditScript = Join-Path $script:ScriptDir "weekly-audit.ps1"
+        if (Test-Path $auditScript) {
+            Remove-Item $auditScript -Force -ErrorAction SilentlyContinue
+        }
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "audit-script" "revert" "ok" "Removed scheduled task + audit script"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "audit-script" "revert" "fail" "Could not remove audit task: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+function Revert-backup-guidance {
+    $desc = "Revert backup guidance"
+    Print-Status $script:CurrentModule $script:TotalModules "$desc (guidance-only, nothing to revert)" "skipped"
+    Log-Entry "backup-guidance" "revert" "skip" "Guidance-only module"
+    $script:ModuleResult = "skipped"
+}
+
+function Revert-border-prep {
+    $desc = "Revert border crossing prep"
+    Print-Status $script:CurrentModule $script:TotalModules "$desc (guidance-only, nothing to revert)" "skipped"
+    Log-Entry "border-prep" "revert" "skip" "Guidance-only module"
+    $script:ModuleResult = "skipped"
+}
+
+function Revert-bluetooth-disable {
+    $desc = "Re-enable Bluetooth"
+    try {
+        Set-Service -Name "bthserv" -StartupType Manual -ErrorAction Stop
+        Start-Service -Name "bthserv" -ErrorAction SilentlyContinue
+        Print-Status $script:CurrentModule $script:TotalModules $desc "reverted"
+        Log-Entry "bluetooth-disable" "revert" "ok" "Bluetooth service re-enabled"
+        $script:ModuleResult = "reverted"
+    } catch {
+        Print-Status $script:CurrentModule $script:TotalModules $desc "failed"
+        Log-Entry "bluetooth-disable" "revert" "fail" "Could not re-enable Bluetooth: $_"
+        $script:ModuleResult = "failed"
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# UNINSTALL & MODIFY FLOWS
+# ═══════════════════════════════════════════════════════════════════
+function Run-Uninstall {
+    Print-Section "Full Uninstall"
+
+    # Load state
+    $hasState = Read-State
+    if (-not $hasState) {
+        Write-ColorLine "  No state file found. Detecting applied modules..." Yellow
+        Detect-AppliedModules
+    }
+
+    $applied = @(Get-AppliedModules)
+    if ($applied.Count -eq 0) {
+        Write-ColorLine "  No hardening changes detected. Nothing to uninstall." Green
+        return
+    }
+
+    # Show status
+    if ($hasState) {
+        Write-Host "  State file found: " -NoNewline; Write-ColorLine $script:StateFileSystem Green
+    }
+    Write-Host "  Applied modules: " -NoNewline; Write-ColorLine $applied.Count White
+    if ($script:StateData.last_run) {
+        Write-Host "  Last run: " -NoNewline; Write-ColorLine $script:StateData.last_run White
+    }
+    Write-Host ""
+
+    # Package question
+    if ($script:StateData.packages_installed.Count -gt 0) {
+        Write-ColorLine "  The following tools were installed by the hardening script:" White
+        Write-Host "    " -NoNewline
+        Write-ColorLine ($script:StateData.packages_installed -join ", ") Cyan
+        Write-Host ""
+        Write-Host "  Remove installed tools as well?" -ForegroundColor White
+        Write-Host "  " -NoNewline; Write-Color "[Y]" Cyan; Write-Host " Yes — uninstall all tools listed above"
+        Write-Host "  " -NoNewline; Write-Color "[N]" Cyan; Write-Host " No  — keep tools, only revert settings"
+        Write-Host "  " -NoNewline; Write-Color "[Q]" DarkGray; Write-Host " Quit"
+        Write-Host ""
+        while ($true) {
+            Write-Host "  Choice: " -NoNewline -ForegroundColor White
+            $pkgChoice = Read-Host
+            switch ($pkgChoice) {
+                { $_ -eq "Y" -or $_ -eq "y" } { $script:RemovePackages = $true; break }
+                { $_ -eq "N" -or $_ -eq "n" } { $script:RemovePackages = $false; break }
+                { $_ -eq "Q" -or $_ -eq "q" } { Write-Host "Aborted."; return }
+                default { Write-ColorLine "  Enter Y, N, or Q." Red; continue }
+            }
+            break
+        }
+        Write-Host ""
+    }
+
+    # Final confirmation
+    $pkgMsg = if ($script:RemovePackages -and $script:StateData.packages_installed.Count -gt 0) {
+        " and remove $($script:StateData.packages_installed.Count) packages"
+    } else { "" }
+    Write-Host "  " -NoNewline; Write-Color "⚠" Yellow
+    Write-Host "  This will revert $($applied.Count) modules$pkgMsg."
+    if (-not (Prompt-YN "Proceed?")) {
+        Write-Host "  Aborted."
+        return
+    }
+    Write-Host ""
+
+    # Revert in reverse order
+    [array]::Reverse($applied)
+    $script:TotalModules = $applied.Count
+    $script:CurrentModule = 0
+
+    foreach ($modId in $applied) {
+        Run-Module $modId "revert"
+    }
+
+    # Update state
+    Write-State
+
+    Print-UninstallSummary
+}
+
+function Run-Modify {
+    Print-Section "Modify Hardening"
+
+    # Load state
+    $hasState = Read-State
+    if (-not $hasState) {
+        Write-ColorLine "  No state file found. Detecting applied modules..." Yellow
+        Detect-AppliedModules
+    }
+
+    $result = Interactive-Picker
+    if (-not $result) { return }
+
+    $addCount = $script:PickerAdd.Count
+    $removeCount = $script:PickerRemove.Count
+
+    if ($addCount -eq 0 -and $removeCount -eq 0) {
+        Write-Host ""
+        Write-ColorLine "  No changes selected." DarkGray
+        return
+    }
+
+    Write-Host ""
+    if ($addCount -gt 0) {
+        Write-Host "  Adding: " -NoNewline; Write-ColorLine ($script:PickerAdd -join ", ") Green
+    }
+    if ($removeCount -gt 0) {
+        Write-Host "  Removing: " -NoNewline; Write-ColorLine ($script:PickerRemove -join ", ") Red
+    }
+    Write-Host ""
+    if (-not (Prompt-YN "Apply changes?")) {
+        Write-Host "  Aborted."
+        return
+    }
+    Write-Host ""
+
+    $script:TotalModules = $addCount + $removeCount
+    $script:CurrentModule = 0
+
+    # Select output mode for apply operations
+    if ($addCount -gt 0) {
+        Select-OutputMode
+    }
+
+    # Apply new modules
+    foreach ($modId in $script:PickerAdd) {
+        Run-Module $modId "apply"
+    }
+
+    # Remove modules
+    foreach ($modId in $script:PickerRemove) {
+        Run-Module $modId "revert"
+    }
+
+    # Update state
+    Write-State
+
+    Print-ModifySummary
+}
+
+function Print-UninstallSummary {
+    Write-Host ""
+    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-ColorLine "  Uninstall Complete" White
+    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-Host ""
+    Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " Reverted:   $($script:CountReverted)"
+    Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " Skipped:    $($script:CountSkipped) " -NoNewline; Write-ColorLine "(nothing to revert)" DarkGray
+    Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " Failed:     $($script:CountFailed)" -NoNewline
+    if ($script:CountFailed -gt 0) { Write-ColorLine " (see log)" Red } else { Write-Host "" }
+    Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " Manual:     $($script:CountManual)" -NoNewline
+    if ($script:CountManual -gt 0) { Write-ColorLine " (see below)" Yellow } else { Write-Host "" }
+    Write-Host ""
+    Write-Host "  State files:"
+    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkGray
+    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkGray
+    Write-Host ""
+
+    if ($script:ManualSteps.Count -gt 0) {
+        Print-ManualChecklist
+    }
+}
+
+function Print-ModifySummary {
+    Write-Host ""
+    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-ColorLine "  Modify Complete" White
+    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-Host ""
+    if ($script:CountApplied -gt 0) {
+        Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " Applied:    $($script:CountApplied)"
+    }
+    if ($script:CountReverted -gt 0) {
+        Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " Reverted:   $($script:CountReverted)"
+    }
+    if ($script:CountSkipped -gt 0) {
+        Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " Skipped:    $($script:CountSkipped)"
+    }
+    if ($script:CountFailed -gt 0) {
+        Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " Failed:     $($script:CountFailed)"
+    }
+    if ($script:CountManual -gt 0) {
+        Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " Manual:     $($script:CountManual)"
+    }
+    Write-Host ""
+    Write-Host "  State files:"
+    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkGray
+    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkGray
+    Write-Host ""
+
+    if ($script:ManualSteps.Count -gt 0) {
+        Print-ManualChecklist
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # OUTPUT: SUMMARY & REPORTS
 # ═══════════════════════════════════════════════════════════════════
 function Print-Summary {
@@ -1286,6 +2445,10 @@ function Print-Summary {
     if ($script:CountManual -gt 0) { Write-ColorLine " (see below)" Yellow } else { Write-Host "" }
     Write-Host ""
     Write-Host "  Profile: $($script:Profile) | OS: Windows | Date: $($script:DATE)"
+    Write-Host ""
+    Write-Host "  State files:"
+    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkGray
+    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkGray
     Write-Host ""
 }
 
@@ -1342,7 +2505,7 @@ function Write-Log {
     New-Item -ItemType Directory -Path (Split-Path $script:LogFile) -Force | Out-Null
     $log = @()
     $log += "# Hardening Log — $($script:TIMESTAMP)"
-    $log += "Profile: $($script:Profile) | OS: Windows"
+    $log += "Mode: $($script:RunMode) | Profile: $($script:Profile) | OS: Windows"
     $log += ""
     $log += $script:LogEntries
     $log | Out-File -FilePath $script:LogFile -Encoding UTF8
@@ -1352,36 +2515,93 @@ function Write-Log {
 # ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
+function Print-Help {
+    Write-Host ""
+    Write-Host "Usage: harden.ps1 [options]"
+    Write-Host ""
+    Write-Host "Options:"
+    Write-Host "  -Uninstall    Full uninstall — revert all hardening changes"
+    Write-Host "  -Modify       Interactive module picker — add or remove individual modules"
+    Write-Host "  -Help         Show this help message"
+    Write-Host ""
+    Write-Host "No options: launch the interactive hardening wizard."
+    Write-Host ""
+}
+
 function Main {
+    # Parse params
+    if ($Help) {
+        Print-Help
+        exit 0
+    }
+    if ($Uninstall) {
+        $script:RunMode = "uninstall"
+    }
+    if ($Modify) {
+        $script:RunMode = "modify"
+    }
+
     Print-Header
     Check-Privileges
 
-    Select-Profile
-    Select-OutputMode
-    Build-ModuleList
+    switch ($script:RunMode) {
+        "uninstall" {
+            Run-Uninstall
+            Write-Log
+            return
+        }
+        "modify" {
+            Run-Modify
+            Write-Log
+            return
+        }
+        default {
+            # Normal hardening flow
+            Select-Profile
 
-    Write-Host ""
-    Write-Host "  Modules to apply: " -NoNewline; Write-ColorLine $script:TotalModules White
-    Write-Host ""
-    if (-not (Prompt-YN "Proceed with hardening?")) {
-        Write-Host "Aborted."
-        exit 0
+            # Menu may have changed RunMode
+            if ($script:RunMode -eq "uninstall") {
+                Run-Uninstall
+                Write-Log
+                return
+            }
+            if ($script:RunMode -eq "modify") {
+                Run-Modify
+                Write-Log
+                return
+            }
+
+            Select-OutputMode
+            Build-ModuleList
+
+            Write-Host ""
+            Write-Host "  Modules to apply: " -NoNewline; Write-ColorLine $script:TotalModules White
+            Write-Host ""
+            if (-not (Prompt-YN "Proceed with hardening?")) {
+                Write-Host "Aborted."
+                exit 0
+            }
+
+            Run-AllModules
+
+            # Write state after hardening
+            Write-State
+
+            Print-Summary
+
+            switch ($script:OutputMode) {
+                "checklist" { Print-ManualChecklist }
+                "pause"     { } # Already guided
+                "report"    { Write-Report }
+            }
+
+            Write-Log
+
+            Write-Host ""
+            Write-ColorLine "  Re-run this script anytime — it's safe to repeat." DarkGray
+            Write-Host ""
+        }
     }
-
-    Run-AllModules
-    Print-Summary
-
-    switch ($script:OutputMode) {
-        "checklist" { Print-ManualChecklist }
-        "pause"     { } # Already guided
-        "report"    { Write-Report }
-    }
-
-    Write-Log
-
-    Write-Host ""
-    Write-ColorLine "  Re-run this script anytime — it's safe to repeat." DarkGray
-    Write-Host ""
 }
 
 Main
