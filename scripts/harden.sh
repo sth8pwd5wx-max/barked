@@ -4985,9 +4985,464 @@ clean_drilldown() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# SYSTEM CLEANER
+# SYSTEM CLEANER — SCAN HELPERS
+# ═══════════════════════════════════════════════════════════════════
+format_bytes() {
+    local bytes="$1"
+    if [[ $bytes -ge 1073741824 ]]; then
+        echo "$(( bytes / 1073741824 )).$(( (bytes % 1073741824) * 10 / 1073741824 )) GB"
+    elif [[ $bytes -ge 1048576 ]]; then
+        echo "$(( bytes / 1048576 )) MB"
+    elif [[ $bytes -ge 1024 ]]; then
+        echo "$(( bytes / 1024 )) KB"
+    else
+        echo "${bytes} B"
+    fi
+}
+
+scan_directory() {
+    local dir="$1"
+    SCAN_FILE_COUNT=0
+    SCAN_BYTE_COUNT=0
+    if [[ -d "$dir" ]]; then
+        local result
+        if [[ "$OS" == "macos" ]]; then
+            result=$(find "$dir" -not -type l -type f -print0 2>/dev/null | xargs -0 stat -f '%z' 2>/dev/null | awk '{s+=$1; c++} END {printf "%d %d", c, s}')
+        else
+            result=$(find "$dir" -not -type l -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1; c++} END {printf "%d %d", c, s}')
+        fi
+        SCAN_FILE_COUNT=$(echo "$result" | awk '{print $1}')
+        SCAN_BYTE_COUNT=$(echo "$result" | awk '{print $2}')
+        SCAN_FILE_COUNT=${SCAN_FILE_COUNT:-0}
+        SCAN_BYTE_COUNT=${SCAN_BYTE_COUNT:-0}
+    fi
+}
+
+scan_find() {
+    local dir="$1"; shift
+    SCAN_FILE_COUNT=0
+    SCAN_BYTE_COUNT=0
+    if [[ -d "$dir" ]]; then
+        local result
+        if [[ "$OS" == "macos" ]]; then
+            result=$(find "$dir" "$@" -not -type l -type f -print0 2>/dev/null | xargs -0 stat -f '%z' 2>/dev/null | awk '{s+=$1; c++} END {printf "%d %d", c, s}')
+        else
+            result=$(find "$dir" "$@" -not -type l -type f -printf '%s\n' 2>/dev/null | awk '{s+=$1; c++} END {printf "%d %d", c, s}')
+        fi
+        SCAN_FILE_COUNT=$(echo "$result" | awk '{print $1}')
+        SCAN_BYTE_COUNT=$(echo "$result" | awk '{print $2}')
+        SCAN_FILE_COUNT=${SCAN_FILE_COUNT:-0}
+        SCAN_BYTE_COUNT=${SCAN_BYTE_COUNT:-0}
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PER-TARGET SCAN FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+scan_system_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "/Library/Caches"
+    else
+        local total_f=0 total_b=0
+        for d in /var/cache/apt/archives /var/cache/dnf /var/cache/pacman/pkg; do
+            if [[ -d "$d" ]]; then
+                scan_directory "$d"
+                total_f=$((total_f + SCAN_FILE_COUNT))
+                total_b=$((total_b + SCAN_BYTE_COUNT))
+            fi
+        done
+        SCAN_FILE_COUNT=$total_f
+        SCAN_BYTE_COUNT=$total_b
+    fi
+    CLEAN_SCAN_FILES[system-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[system-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_system_logs() {
+    if [[ "$OS" == "macos" ]]; then
+        local total_f=0 total_b=0
+        for d in /Library/Logs /var/log/asl; do
+            if [[ -d "$d" ]]; then
+                scan_directory "$d"
+                total_f=$((total_f + SCAN_FILE_COUNT))
+                total_b=$((total_b + SCAN_BYTE_COUNT))
+            fi
+        done
+        SCAN_FILE_COUNT=$total_f
+        SCAN_BYTE_COUNT=$total_b
+    else
+        SCAN_FILE_COUNT=0
+        SCAN_BYTE_COUNT=0
+        if command -v journalctl &>/dev/null; then
+            local usage
+            usage=$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+ [KMGT]' | head -1)
+            if [[ -n "$usage" ]]; then
+                local num unit
+                num=$(echo "$usage" | awk '{print $1}')
+                unit=$(echo "$usage" | awk '{print $2}')
+                case "$unit" in
+                    G) SCAN_BYTE_COUNT=$(echo "$num * 1073741824" | bc 2>/dev/null | cut -d. -f1) ;;
+                    M) SCAN_BYTE_COUNT=$(echo "$num * 1048576" | bc 2>/dev/null | cut -d. -f1) ;;
+                    K) SCAN_BYTE_COUNT=$(echo "$num * 1024" | bc 2>/dev/null | cut -d. -f1) ;;
+                esac
+                SCAN_BYTE_COUNT=${SCAN_BYTE_COUNT:-0}
+            fi
+        fi
+    fi
+    CLEAN_SCAN_FILES[system-logs]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[system-logs]=$SCAN_BYTE_COUNT
+}
+
+scan_diagnostic_reports() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "/Library/Logs/DiagnosticReports"
+    else
+        scan_directory "/var/crash"
+    fi
+    CLEAN_SCAN_FILES[diagnostic-reports]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[diagnostic-reports]=$SCAN_BYTE_COUNT
+}
+
+scan_dns_cache() {
+    CLEAN_SCAN_FILES[dns-cache]=0
+    CLEAN_SCAN_BYTES[dns-cache]=0
+}
+
+scan_user_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Caches"
+    else
+        scan_directory "$HOME/.cache"
+    fi
+    CLEAN_SCAN_FILES[user-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[user-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_user_logs() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Logs"
+    else
+        scan_directory "$HOME/.local/share/logs"
+    fi
+    CLEAN_SCAN_FILES[user-logs]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[user-logs]=$SCAN_BYTE_COUNT
+}
+
+scan_saved_app_state() {
+    scan_directory "$HOME/Library/Saved Application State"
+    CLEAN_SCAN_FILES[saved-app-state]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[saved-app-state]=$SCAN_BYTE_COUNT
+}
+
+scan_safari() {
+    local total_f=0 total_b=0
+    for d in "$HOME/Library/Caches/com.apple.Safari" \
+             "$HOME/Library/Safari/LocalStorage" \
+             "$HOME/Library/Safari/Databases" \
+             "$HOME/Library/Cookies"; do
+        scan_directory "$d"
+        total_f=$((total_f + SCAN_FILE_COUNT))
+        total_b=$((total_b + SCAN_BYTE_COUNT))
+    done
+    CLEAN_SCAN_FILES[safari]=$total_f
+    CLEAN_SCAN_BYTES[safari]=$total_b
+}
+
+scan_chrome() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Caches/Google/Chrome"
+    else
+        scan_directory "$HOME/.cache/google-chrome"
+    fi
+    CLEAN_SCAN_FILES[chrome]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[chrome]=$SCAN_BYTE_COUNT
+}
+
+scan_firefox() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Caches/Firefox"
+    else
+        scan_directory "$HOME/.cache/mozilla/firefox"
+    fi
+    CLEAN_SCAN_FILES[firefox]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[firefox]=$SCAN_BYTE_COUNT
+}
+
+scan_arc() {
+    scan_directory "$HOME/Library/Caches/Arc"
+    CLEAN_SCAN_FILES[arc]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[arc]=$SCAN_BYTE_COUNT
+}
+
+scan_edge() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Caches/Microsoft Edge"
+    else
+        scan_directory "$HOME/.cache/microsoft-edge"
+    fi
+    CLEAN_SCAN_FILES[edge]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[edge]=$SCAN_BYTE_COUNT
+}
+
+scan_recent_items() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Application Support/com.apple.sharedfilelist"
+    else
+        SCAN_FILE_COUNT=0; SCAN_BYTE_COUNT=0
+        if [[ -f "$HOME/.local/share/recently-used.xbel" ]]; then
+            SCAN_FILE_COUNT=1
+            SCAN_BYTE_COUNT=$(stat -c '%s' "$HOME/.local/share/recently-used.xbel" 2>/dev/null || echo 0)
+        fi
+    fi
+    CLEAN_SCAN_FILES[recent-items]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[recent-items]=$SCAN_BYTE_COUNT
+}
+
+scan_quicklook_thumbs() {
+    scan_directory "$HOME/Library/Caches/com.apple.QuickLook.thumbnailcache"
+    CLEAN_SCAN_FILES[quicklook-thumbs]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[quicklook-thumbs]=$SCAN_BYTE_COUNT
+}
+
+scan_ds_store() {
+    scan_find "$HOME" -name ".DS_Store" -maxdepth 10
+    CLEAN_SCAN_FILES[ds-store]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[ds-store]=$SCAN_BYTE_COUNT
+}
+
+scan_clipboard() {
+    CLEAN_SCAN_FILES[clipboard]=0
+    CLEAN_SCAN_BYTES[clipboard]=0
+}
+
+scan_search_metadata() {
+    CLEAN_SCAN_FILES[search-metadata]=0
+    CLEAN_SCAN_BYTES[search-metadata]=0
+}
+
+scan_xcode_derived() {
+    scan_directory "$HOME/Library/Developer/Xcode/DerivedData"
+    CLEAN_SCAN_FILES[xcode-derived]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[xcode-derived]=$SCAN_BYTE_COUNT
+}
+
+scan_homebrew_cache() {
+    if command -v brew &>/dev/null; then
+        local cache_dir
+        cache_dir=$(brew --cache 2>/dev/null)
+        scan_directory "$cache_dir"
+    else
+        SCAN_FILE_COUNT=0; SCAN_BYTE_COUNT=0
+    fi
+    CLEAN_SCAN_FILES[homebrew-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[homebrew-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_npm_cache() {
+    if command -v npm &>/dev/null; then
+        local cache_dir
+        cache_dir=$(npm config get cache 2>/dev/null)
+        scan_directory "$cache_dir"
+    else
+        SCAN_FILE_COUNT=0; SCAN_BYTE_COUNT=0
+    fi
+    CLEAN_SCAN_FILES[npm-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[npm-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_yarn_cache() {
+    if command -v yarn &>/dev/null; then
+        local cache_dir
+        cache_dir=$(yarn cache dir 2>/dev/null)
+        scan_directory "$cache_dir"
+    else
+        SCAN_FILE_COUNT=0; SCAN_BYTE_COUNT=0
+    fi
+    CLEAN_SCAN_FILES[yarn-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[yarn-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_pip_cache() {
+    local pip_cmd="pip3"
+    command -v pip3 &>/dev/null || pip_cmd="pip"
+    if command -v "$pip_cmd" &>/dev/null; then
+        local cache_dir
+        cache_dir=$($pip_cmd cache dir 2>/dev/null)
+        scan_directory "$cache_dir"
+    else
+        SCAN_FILE_COUNT=0; SCAN_BYTE_COUNT=0
+    fi
+    CLEAN_SCAN_FILES[pip-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[pip-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_cargo_cache() {
+    scan_directory "$HOME/.cargo/registry/cache"
+    CLEAN_SCAN_FILES[cargo-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[cargo-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_go_cache() {
+    if command -v go &>/dev/null; then
+        local cache_dir
+        cache_dir=$(go env GOCACHE 2>/dev/null)
+        scan_directory "$cache_dir"
+    else
+        SCAN_FILE_COUNT=0; SCAN_BYTE_COUNT=0
+    fi
+    CLEAN_SCAN_FILES[go-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[go-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_cocoapods_cache() {
+    scan_directory "$HOME/Library/Caches/CocoaPods"
+    CLEAN_SCAN_FILES[cocoapods-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[cocoapods-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_docker_cruft() {
+    SCAN_FILE_COUNT=0
+    SCAN_BYTE_COUNT=0
+    if command -v docker &>/dev/null; then
+        local usage
+        usage=$(docker system df --format '{{.Size}}' 2>/dev/null | head -1)
+        SCAN_FILE_COUNT=0
+        SCAN_BYTE_COUNT=0
+    fi
+    CLEAN_SCAN_FILES[docker-cruft]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[docker-cruft]=$SCAN_BYTE_COUNT
+}
+
+scan_ide_caches() {
+    local total_f=0 total_b=0
+    for d in "$HOME/Library/Application Support/Code/Cache" \
+             "$HOME/.config/Code/Cache" \
+             "$HOME/Library/Caches/JetBrains" \
+             "$HOME/.cache/JetBrains"; do
+        if [[ -d "$d" ]]; then
+            scan_directory "$d"
+            total_f=$((total_f + SCAN_FILE_COUNT))
+            total_b=$((total_b + SCAN_BYTE_COUNT))
+        fi
+    done
+    CLEAN_SCAN_FILES[ide-caches]=$total_f
+    CLEAN_SCAN_BYTES[ide-caches]=$total_b
+}
+
+scan_trash() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/.Trash"
+    else
+        scan_directory "$HOME/.local/share/Trash"
+    fi
+    CLEAN_SCAN_FILES[trash]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[trash]=$SCAN_BYTE_COUNT
+}
+
+scan_old_downloads() {
+    scan_find "$HOME/Downloads" -mtime +30 -maxdepth 1
+    CLEAN_SCAN_FILES[old-downloads]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[old-downloads]=$SCAN_BYTE_COUNT
+}
+
+scan_mail_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        scan_directory "$HOME/Library/Containers/com.apple.mail/Data/Library/Caches"
+    else
+        scan_directory "$HOME/.thunderbird"
+    fi
+    CLEAN_SCAN_FILES[mail-cache]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[mail-cache]=$SCAN_BYTE_COUNT
+}
+
+scan_messages_attachments() {
+    scan_directory "$HOME/Library/Messages/Attachments"
+    CLEAN_SCAN_FILES[messages-attachments]=$SCAN_FILE_COUNT
+    CLEAN_SCAN_BYTES[messages-attachments]=$SCAN_BYTE_COUNT
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — SCAN DISPATCHER & PREVIEW
+# ═══════════════════════════════════════════════════════════════════
+scan_target() {
+    local target="$1"
+    local func="scan_${target//-/_}"
+    if declare -f "$func" &>/dev/null; then
+        "$func"
+    else
+        CLEAN_SCAN_FILES[$target]=0
+        CLEAN_SCAN_BYTES[$target]=0
+    fi
+}
+
+clean_preview() {
+    print_section "Scanning..."
+
+    local -a ordered_targets=()
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+            if [[ "${CLEAN_TARGETS[$target]:-0}" == "1" ]]; then
+                ordered_targets+=("$target")
+            fi
+        done
+    done
+
+    for target in "${ordered_targets[@]}"; do
+        echo -ne "  ${YELLOW}⟳${NC} Scanning ${CLEAN_TARGET_NAMES[$target]}...\r"
+        scan_target "$target"
+        echo -ne "\033[K"
+    done
+
+    local total_files=0 total_bytes=0
+    echo ""
+    echo -e "  ${BOLD}${WHITE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${BOLD}${WHITE}║                   CLEANING PREVIEW                       ║${NC}"
+    echo -e "  ${BOLD}${WHITE}╠══════════════════════════════════════════════════════════╣${NC}"
+    printf "  ${BOLD}  %-32s %8s %10s %8s${NC}\n" "Target" "Files" "Size" "Status"
+    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+
+    for target in "${ordered_targets[@]}"; do
+        local files="${CLEAN_SCAN_FILES[$target]:-0}"
+        local bytes="${CLEAN_SCAN_BYTES[$target]:-0}"
+        local status="Ready"
+        local size_str
+        if [[ $bytes -gt 0 ]]; then
+            size_str=$(format_bytes "$bytes")
+        elif [[ $files -gt 0 ]]; then
+            size_str="—"
+        else
+            case "$target" in
+                dns-cache|clipboard|search-metadata) size_str="—"; status="Ready" ;;
+                *) status="Empty"; size_str="—" ;;
+            esac
+        fi
+
+        local file_str="$files"
+        [[ $files -eq 0 ]] && file_str="—"
+
+        local color="$NC"
+        [[ "$status" == "Empty" ]] && color="$DIM"
+
+        printf "  ${color}  %-32s %8s %10s %8s${NC}\n" \
+            "${CLEAN_TARGET_NAMES[$target]}" "$file_str" "$size_str" "$status"
+
+        total_files=$((total_files + files))
+        total_bytes=$((total_bytes + bytes))
+    done
+
+    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+    printf "  ${BOLD}  %-32s %8s %10s${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
+    echo -e "  ${BOLD}${WHITE}╚══════════════════════════════════════════════════════════╝${NC}"
+
+    CLEAN_TOTAL_SCAN_FILES=$total_files
+    CLEAN_TOTAL_SCAN_BYTES=$total_bytes
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — MAIN ENTRY
 # ═══════════════════════════════════════════════════════════════════
 run_clean() {
+    echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${NC}${BOLD}          SYSTEM CLEANER v${VERSION}                 ${NC}${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}          macOS / Linux                           ${CYAN}║${NC}"
@@ -4995,9 +5450,28 @@ run_clean() {
 
     clean_picker
     clean_drilldown
+    clean_preview
+
+    # Dry-run: show preview and exit
+    if [[ "$DRY_RUN" == true ]]; then
+        echo ""
+        echo -e "  ${CYAN}[DRY RUN]${NC} Preview only — no files deleted."
+        return
+    fi
+
+    # Confirmation
+    if [[ "$CLEAN_FORCE" != true ]]; then
+        echo ""
+        echo -ne "  ${BOLD}Proceed with cleaning? (y/N):${NC} "
+        read -r confirm
+        if [[ "${confirm,,}" != "y" ]]; then
+            echo -e "  ${DIM}Cancelled.${NC}"
+            return
+        fi
+    fi
 
     echo ""
-    echo -e "  ${DIM}(scan/preview coming in next task)${NC}"
+    echo -e "  ${DIM}(cleaning execution coming in next task)${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════
