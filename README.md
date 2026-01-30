@@ -16,15 +16,15 @@ Every change is idempotent and reversible. The scripts check system state before
 ```bash
 git clone <repo-url> secure
 cd secure
-chmod +x scripts/harden.sh
-sudo ./scripts/harden.sh
+chmod +x scripts/barked.sh
+sudo ./scripts/barked.sh
 ```
 
 **Windows (PowerShell as Administrator):**
 ```powershell
 git clone <repo-url> secure
 cd secure
-.\scripts\harden.ps1
+.\scripts\barked.ps1
 ```
 
 The wizard guides you from there.
@@ -96,16 +96,16 @@ For platform-specific implementation details, see [docs/plans/2026-01-29-hardeni
 Built-in system cleaner for privacy and disk hygiene. Run alongside hardening or independently.
 
 ```bash
-sudo ./harden.sh --clean              # Interactive cleaning wizard
-sudo ./harden.sh --clean --dry-run    # Preview what would be cleaned
-sudo ./harden.sh --clean --force      # Skip confirmation prompt
+sudo ./barked.sh --clean              # Interactive cleaning wizard
+sudo ./barked.sh --clean --dry-run    # Preview what would be cleaned
+sudo ./barked.sh --clean --force      # Skip confirmation prompt
 ```
 
 Windows:
 ```powershell
-.\harden.ps1 -Clean                   # Interactive cleaning wizard
-.\harden.ps1 -Clean -DryRun           # Preview what would be cleaned
-.\harden.ps1 -Clean -Force            # Skip confirmation prompt
+.\barked.ps1 -Clean                   # Interactive cleaning wizard
+.\barked.ps1 -Clean -DryRun           # Preview what would be cleaned
+.\barked.ps1 -Clean -Force            # Skip confirmation prompt
 ```
 
 **Categories:** System Caches & Logs, User Caches & Logs, Browser Data, Privacy Traces, Developer Cruft, Trash & Downloads, Mail & Messages
@@ -122,14 +122,14 @@ Windows:
 
 **Full uninstall** — revert all changes:
 ```bash
-sudo ./scripts/harden.sh --uninstall          # macOS / Linux
-.\scripts\harden.ps1 -Uninstall               # Windows
+sudo ./scripts/barked.sh --uninstall          # macOS / Linux
+.\scripts\barked.ps1 -Uninstall               # Windows
 ```
 
 **Modify** — add or remove individual modules:
 ```bash
-sudo ./scripts/harden.sh --modify             # macOS / Linux
-.\scripts\harden.ps1 -Modify                  # Windows
+sudo ./scripts/barked.sh --modify             # macOS / Linux
+.\scripts\barked.ps1 -Modify                  # Windows
 ```
 
 Both options are also available from the wizard menu (`[U]` Uninstall, `[M]` Modify).
@@ -147,8 +147,8 @@ If the state file is missing, the scripts detect applied hardening from live sys
 ```
 secure/
 ├── scripts/
-│   ├── harden.sh              # macOS + Linux wizard
-│   ├── harden.ps1             # Windows wizard
+│   ├── barked.sh              # macOS + Linux wizard
+│   ├── barked.ps1             # Windows wizard
 │   └── weekly-audit.sh        # macOS weekly audit
 ├── docs/plans/                # Design documents
 ├── audits/                    # Audit reports

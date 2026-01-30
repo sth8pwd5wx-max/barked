@@ -5,7 +5,7 @@
 
 ## Overview
 
-Add audit scoring, new CLI modes (dry-run, non-interactive, audit-only), pre-change analysis, and three new advanced hardening modules with mandatory vetting. All changes go into `scripts/harden.sh` — single-file architecture preserved.
+Add audit scoring, new CLI modes (dry-run, non-interactive, audit-only), pre-change analysis, and three new advanced hardening modules with mandatory vetting. All changes go into `scripts/barked.sh` — single-file architecture preserved.
 
 ## 1. Audit & Scoring System
 
@@ -46,7 +46,7 @@ Shown during `--audit` and after wizard runs:
 - Calculates and displays the hardening score
 - Saves report to `audits/audit-YYYY-MM-DD.md`
 - Exits without prompting for changes
-- Scoped with `--profile`: `sudo ./harden.sh --audit --profile high`
+- Scoped with `--profile`: `sudo ./barked.sh --audit --profile high`
 
 ### Smart-Skip Inline (Normal Wizard Flow)
 
@@ -168,16 +168,16 @@ Type YES to apply these changes: _
 ## 6. CLI Flags Summary
 
 ```
-sudo ./harden.sh                                    # Interactive wizard (existing)
-sudo ./harden.sh --uninstall                         # Full uninstall (existing)
-sudo ./harden.sh --modify                            # Module picker (existing)
-sudo ./harden.sh --audit                             # Audit-only, no changes
-sudo ./harden.sh --audit --profile <name>            # Audit scoped to profile
-sudo ./harden.sh --dry-run                           # Preview wizard interactively
-sudo ./harden.sh --dry-run --auto --profile <name>   # Preview automated run
-sudo ./harden.sh --auto --profile <name>             # Non-interactive apply
-sudo ./harden.sh --auto --profile <name> --quiet     # Silent CI mode
-sudo ./harden.sh --auto --profile <name> --accept-advanced  # Include advanced modules
+sudo ./barked.sh                                    # Interactive wizard (existing)
+sudo ./barked.sh --uninstall                         # Full uninstall (existing)
+sudo ./barked.sh --modify                            # Module picker (existing)
+sudo ./barked.sh --audit                             # Audit-only, no changes
+sudo ./barked.sh --audit --profile <name>            # Audit scoped to profile
+sudo ./barked.sh --dry-run                           # Preview wizard interactively
+sudo ./barked.sh --dry-run --auto --profile <name>   # Preview automated run
+sudo ./barked.sh --auto --profile <name>             # Non-interactive apply
+sudo ./barked.sh --auto --profile <name> --quiet     # Silent CI mode
+sudo ./barked.sh --auto --profile <name> --accept-advanced  # Include advanced modules
 ```
 
 ## 7. Implementation Summary
@@ -213,5 +213,5 @@ sudo ./harden.sh --auto --profile <name> --accept-advanced  # Include advanced m
 
 ### File Changes
 
-- `scripts/harden.sh` — all changes (single-file preserved)
+- `scripts/barked.sh` — all changes (single-file preserved)
 - Runtime outputs to `audits/` directory

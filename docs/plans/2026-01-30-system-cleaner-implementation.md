@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a `--clean` mode to `harden.sh` (macOS/Linux) and `harden.ps1` (Windows) that provides interactive system cleaning with a two-level picker, size-estimated preview, safety guardrails, and cleanliness scoring.
+**Goal:** Add a `--clean` mode to `barked.sh` (macOS/Linux) and `barked.ps1` (Windows) that provides interactive system cleaning with a two-level picker, size-estimated preview, safety guardrails, and cleanliness scoring.
 
 **Architecture:** The cleaner is a new run mode inside the existing scripts. It reuses OS detection, privilege checks, colors, and logging, but has its own globals, picker UI, scan/clean/verify cycle, and scoring system. Each cleaning target is a self-contained module with `scan_`, `clean_`, and `verify_` functions. The picker, preview, execution, and summary are orchestrated by a `run_clean()` entry point dispatched from `main()`.
 
@@ -12,10 +12,10 @@
 
 ---
 
-## Task 1: Add `--clean` flag and clean mode globals (harden.sh)
+## Task 1: Add `--clean` flag and clean mode globals (barked.sh)
 
 **Files:**
-- Modify: `scripts/harden.sh` — globals section (~line 35-90), parse_args (~line 4590), main (~line 4681)
+- Modify: `scripts/barked.sh` — globals section (~line 35-90), parse_args (~line 4590), main (~line 4681)
 
 **Step 1: Add clean mode globals after line 62 (below `ACCEPT_ADVANCED`)**
 
@@ -150,16 +150,16 @@ run_clean() {
 **Step 5: Commit**
 
 ```bash
-git add scripts/harden.sh
+git add scripts/barked.sh
 git commit -m "feat(clean): add --clean flag, globals, and mode dispatch"
 ```
 
 ---
 
-## Task 2: Build the two-level picker UI (harden.sh)
+## Task 2: Build the two-level picker UI (barked.sh)
 
 **Files:**
-- Modify: `scripts/harden.sh` — add `clean_picker()` and `clean_drilldown()` functions
+- Modify: `scripts/barked.sh` — add `clean_picker()` and `clean_drilldown()` functions
 
 **Step 1: Add target-to-category mapping and display names**
 
@@ -450,16 +450,16 @@ run_clean() {
 **Step 6: Commit**
 
 ```bash
-git add scripts/harden.sh
+git add scripts/barked.sh
 git commit -m "feat(clean): add two-level picker with auto-detection"
 ```
 
 ---
 
-## Task 3: Add scan functions and preview table (harden.sh)
+## Task 3: Add scan functions and preview table (barked.sh)
 
 **Files:**
-- Modify: `scripts/harden.sh` — add scan functions + preview display
+- Modify: `scripts/barked.sh` — add scan functions + preview display
 
 **Step 1: Add helper functions for size formatting and safe scanning**
 
@@ -982,16 +982,16 @@ run_clean() {
 **Step 5: Commit**
 
 ```bash
-git add scripts/harden.sh
+git add scripts/barked.sh
 git commit -m "feat(clean): add scan functions and preview table"
 ```
 
 ---
 
-## Task 4: Add clean and verify functions + execution loop (harden.sh)
+## Task 4: Add clean and verify functions + execution loop (barked.sh)
 
 **Files:**
-- Modify: `scripts/harden.sh` — add clean/verify functions and execution orchestration
+- Modify: `scripts/barked.sh` — add clean/verify functions and execution orchestration
 
 **Step 1: Add clean logging helper**
 
@@ -1535,16 +1535,16 @@ Replace the placeholder in `run_clean()` after the confirmation block:
 **Step 6: Commit**
 
 ```bash
-git add scripts/harden.sh
+git add scripts/barked.sh
 git commit -m "feat(clean): add clean/verify functions and execution loop"
 ```
 
 ---
 
-## Task 5: Add cleanliness score, summary, and log writing (harden.sh)
+## Task 5: Add cleanliness score, summary, and log writing (barked.sh)
 
 **Files:**
-- Modify: `scripts/harden.sh` — add scoring, summary table, and log output
+- Modify: `scripts/barked.sh` — add scoring, summary table, and log output
 
 **Step 1: Add cleanliness score calculator**
 
@@ -1717,20 +1717,20 @@ run_clean() {
 **Step 5: Commit**
 
 ```bash
-git add scripts/harden.sh
+git add scripts/barked.sh
 git commit -m "feat(clean): add cleanliness score, summary, and log writing"
 ```
 
 ---
 
-## Task 6: Add `--clean` mode to harden.ps1 (Windows)
+## Task 6: Add `--clean` mode to barked.ps1 (Windows)
 
 **Files:**
-- Modify: `scripts/harden.ps1` — add clean mode for Windows
+- Modify: `scripts/barked.ps1` — add clean mode for Windows
 
 **Step 1: Add `-Clean` and `-Force` parameters**
 
-Add to the `param()` block at the top of `harden.ps1`:
+Add to the `param()` block at the top of `barked.ps1`:
 
 ```powershell
     [switch]$Clean,
@@ -1854,8 +1854,8 @@ if ($Clean) {
 **Step 5: Commit**
 
 ```bash
-git add scripts/harden.ps1
-git commit -m "feat(clean): add --clean mode for Windows (harden.ps1)"
+git add scripts/barked.ps1
+git commit -m "feat(clean): add --clean mode for Windows (barked.ps1)"
 ```
 
 ---
@@ -1864,8 +1864,8 @@ git commit -m "feat(clean): add --clean mode for Windows (harden.ps1)"
 
 **Files:**
 - Modify: `README.md` — add system cleaner section
-- Modify: `scripts/harden.sh` — update help examples
-- Modify: `scripts/harden.ps1` — update help examples
+- Modify: `scripts/barked.sh` — update help examples
+- Modify: `scripts/barked.ps1` — update help examples
 
 **Step 1: Add System Cleaner section to README**
 
@@ -1877,9 +1877,9 @@ Add a new section after the existing "Modules" section:
 Built-in system cleaner for privacy and disk hygiene. Run alongside hardening or independently.
 
 ```bash
-sudo ./harden.sh --clean              # Interactive cleaning wizard
-sudo ./harden.sh --clean --dry-run    # Preview what would be cleaned
-sudo ./harden.sh --clean --force      # Skip confirmation prompt
+sudo ./barked.sh --clean              # Interactive cleaning wizard
+sudo ./barked.sh --clean --dry-run    # Preview what would be cleaned
+sudo ./barked.sh --clean --force      # Skip confirmation prompt
 ```
 
 **Categories:** System Caches & Logs, User Caches & Logs, Browser Data, Privacy Traces, Developer Cruft, Trash & Downloads, Mail & Messages
@@ -1906,7 +1906,7 @@ Add to the examples section in `parse_args()`:
 **Step 3: Commit**
 
 ```bash
-git add README.md scripts/harden.sh scripts/harden.ps1
+git add README.md scripts/barked.sh scripts/barked.ps1
 git commit -m "docs: add system cleaner to README and help text"
 ```
 
@@ -1921,5 +1921,5 @@ git commit -m "docs: add system cleaner to README and help text"
 | 3 | Scan functions + preview | Per-target size estimation and preview table |
 | 4 | Clean functions + execution | Per-target cleaning with safety guardrails |
 | 5 | Score + summary + logging | Cleanliness score, summary table, log file |
-| 6 | Windows PowerShell port | Full `--clean` mode in `harden.ps1` |
+| 6 | Windows PowerShell port | Full `--clean` mode in `barked.ps1` |
 | 7 | README + help text | Documentation and usage examples |

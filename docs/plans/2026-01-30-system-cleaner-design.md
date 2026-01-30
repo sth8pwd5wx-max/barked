@@ -6,23 +6,23 @@
 
 ## Overview
 
-A system cleaner feature integrated into `harden.sh` (macOS/Linux) and `harden.ps1` (Windows), invoked via `--clean`. Provides privacy-focused cleaning and disk space recovery with a two-level interactive picker, size-estimated preview, and cleanliness scoring. Cross-platform from day one.
+A system cleaner feature integrated into `barked.sh` (macOS/Linux) and `barked.ps1` (Windows), invoked via `--clean`. Provides privacy-focused cleaning and disk space recovery with a two-level interactive picker, size-estimated preview, and cleanliness scoring. Cross-platform from day one.
 
 ## CLI Interface
 
 ```
-sudo ./harden.sh --clean              # Interactive cleaning wizard
-sudo ./harden.sh --clean --dry-run    # Preview only, no deletions
-sudo ./harden.sh --clean --force      # Skip confirmation after preview
-sudo ./harden.sh --clean --quiet      # Minimal output, log to file only
+sudo ./barked.sh --clean              # Interactive cleaning wizard
+sudo ./barked.sh --clean --dry-run    # Preview only, no deletions
+sudo ./barked.sh --clean --force      # Skip confirmation after preview
+sudo ./barked.sh --clean --quiet      # Minimal output, log to file only
 ```
 
 Windows equivalent:
 ```
-.\harden.ps1 --clean
-.\harden.ps1 --clean --dry-run
-.\harden.ps1 --clean --force
-.\harden.ps1 --clean --quiet
+.\barked.ps1 --clean
+.\barked.ps1 --clean --dry-run
+.\barked.ps1 --clean --force
+.\barked.ps1 --clean --quiet
 ```
 
 ## Flow
@@ -290,7 +290,7 @@ Repeated runs on the same day append to the same log file with a separator line 
 
 ## Implementation Split
 
-- `harden.sh`: macOS + Linux targets (Bash, following existing multi-platform patterns with `case $OS_TYPE`)
-- `harden.ps1`: Windows targets (PowerShell, matching existing Windows module style)
+- `barked.sh`: macOS + Linux targets (Bash, following existing multi-platform patterns with `case $OS_TYPE`)
+- `barked.ps1`: Windows targets (PowerShell, matching existing Windows module style)
 
 Both scripts share the same CLI flags, picker UI design, scoring weights, and log format.

@@ -5,11 +5,11 @@
 
 ## Overview
 
-Add uninstall and modify capabilities to the existing hardening scripts (`harden.sh` / `harden.ps1`), plus a project README. Users can fully revert all hardening changes, or selectively add/remove individual modules through an interactive category-grouped picker with arrow-key navigation.
+Add uninstall and modify capabilities to the existing hardening scripts (`barked.sh` / `barked.ps1`), plus a project README. Users can fully revert all hardening changes, or selectively add/remove individual modules through an interactive category-grouped picker with arrow-key navigation.
 
 ## Design Decisions
 
-- **Built-in, not separate scripts:** Uninstall and modify logic lives inside `harden.sh` / `harden.ps1`. Module revert functions sit alongside apply functions. CLI flags (`--uninstall`, `--modify` / `-Uninstall`, `-Modify`) and wizard menu entries (`[U]`, `[M]`) provide entry points.
+- **Built-in, not separate scripts:** Uninstall and modify logic lives inside `barked.sh` / `barked.ps1`. Module revert functions sit alongside apply functions. CLI flags (`--uninstall`, `--modify` / `-Uninstall`, `-Modify`) and wizard menu entries (`[U]`, `[M]`) provide entry points.
 - **State file + live detection:** A JSON state file records what was applied. Falls back to live `check_state` detection if the file is missing.
 - **State file in two locations:** System path (primary) and project directory (copy). User informed of both paths after every run.
 - **Interactive module picker:** Arrow-key/spacebar navigation for the modify screen. Built in pure Bash / PowerShell with no dependencies.
@@ -66,12 +66,12 @@ Add uninstall and modify capabilities to the existing hardening scripts (`harden
 
 ```bash
 # Bash
-sudo ./harden.sh --uninstall    # Full uninstall
-sudo ./harden.sh --modify       # Interactive module picker
+sudo ./barked.sh --uninstall    # Full uninstall
+sudo ./barked.sh --modify       # Interactive module picker
 
 # PowerShell
-.\harden.ps1 -Uninstall         # Full uninstall
-.\harden.ps1 -Modify            # Interactive module picker
+.\barked.ps1 -Uninstall         # Full uninstall
+.\barked.ps1 -Modify            # Interactive module picker
 ```
 
 ### Wizard Menu
