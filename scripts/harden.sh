@@ -126,6 +126,65 @@ declare -A CLEAN_SEVERITY=(
     [messages-attachments]="HIGH"
 )
 
+# Category -> targets mapping
+declare -A CLEAN_CAT_TARGETS=(
+    [system-caches]="system-cache system-logs diagnostic-reports dns-cache"
+    [user-caches]="user-cache user-logs saved-app-state"
+    [browser-data]="safari chrome firefox arc edge"
+    [privacy-traces]="recent-items quicklook-thumbs ds-store clipboard search-metadata"
+    [dev-cruft]="xcode-derived homebrew-cache npm-cache yarn-cache pip-cache cargo-cache go-cache cocoapods-cache docker-cruft ide-caches"
+    [trash-downloads]="trash old-downloads"
+    [mail-messages]="mail-cache messages-attachments"
+)
+
+# Display names
+declare -A CLEAN_CAT_NAMES=(
+    [system-caches]="System Caches & Logs"
+    [user-caches]="User Caches & Logs"
+    [browser-data]="Browser Data"
+    [privacy-traces]="Privacy Traces"
+    [dev-cruft]="Developer Cruft"
+    [trash-downloads]="Trash & Downloads"
+    [mail-messages]="Mail & Messages"
+)
+
+declare -A CLEAN_TARGET_NAMES=(
+    [system-cache]="System cache"
+    [system-logs]="System logs"
+    [diagnostic-reports]="Diagnostic reports"
+    [dns-cache]="DNS cache"
+    [user-cache]="User cache"
+    [user-logs]="User logs"
+    [saved-app-state]="Saved application state"
+    [safari]="Safari cache & data"
+    [chrome]="Chrome cache & data"
+    [firefox]="Firefox cache & data"
+    [arc]="Arc cache & data"
+    [edge]="Edge cache & data"
+    [recent-items]="Recent items"
+    [quicklook-thumbs]="QuickLook thumbnails"
+    [ds-store]=".DS_Store files"
+    [clipboard]="Clipboard"
+    [search-metadata]="Search metadata"
+    [xcode-derived]="Xcode derived data"
+    [homebrew-cache]="Homebrew cache"
+    [npm-cache]="npm cache"
+    [yarn-cache]="yarn cache"
+    [pip-cache]="pip cache"
+    [cargo-cache]="Cargo cache"
+    [go-cache]="Go cache"
+    [cocoapods-cache]="CocoaPods cache"
+    [docker-cruft]="Docker cruft"
+    [ide-caches]="IDE caches"
+    [trash]="Trash"
+    [old-downloads]="Old downloads (30+ days)"
+    [mail-cache]="Mail attachment cache"
+    [messages-attachments]="Messages attachments"
+)
+
+# Ordered category keys (for display order)
+CLEAN_CAT_ORDER=(system-caches user-caches browser-data privacy-traces dev-cruft trash-downloads mail-messages)
+
 # State file locations
 STATE_FILE_SYSTEM="/etc/hardening-state.json"
 STATE_FILE_PROJECT="${SCRIPT_DIR}/../state/hardening-state.json"
@@ -4754,6 +4813,178 @@ parse_args() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — TARGET AVAILABILITY
+# ═══════════════════════════════════════════════════════════════════
+clean_target_available() {
+    local target="$1"
+    case "$target" in
+        safari|saved-app-state|quicklook-thumbs|ds-store|xcode-derived|cocoapods-cache|messages-attachments)
+            [[ "$OS" == "macos" ]] ;;
+        chrome)
+            if [[ "$OS" == "macos" ]]; then
+                [[ -d "$HOME/Library/Caches/Google/Chrome" ]]
+            else
+                [[ -d "$HOME/.cache/google-chrome" ]]
+            fi ;;
+        firefox)
+            if [[ "$OS" == "macos" ]]; then
+                [[ -d "$HOME/Library/Caches/Firefox" || -d "$HOME/Library/Application Support/Firefox" ]]
+            else
+                [[ -d "$HOME/.cache/mozilla/firefox" || -d "$HOME/.mozilla/firefox" ]]
+            fi ;;
+        arc)
+            [[ "$OS" == "macos" && -d "$HOME/Library/Caches/Arc" ]] ;;
+        edge)
+            if [[ "$OS" == "macos" ]]; then
+                [[ -d "$HOME/Library/Caches/Microsoft Edge" ]]
+            else
+                [[ -d "$HOME/.cache/microsoft-edge" ]]
+            fi ;;
+        homebrew-cache) command -v brew &>/dev/null ;;
+        npm-cache) command -v npm &>/dev/null ;;
+        yarn-cache) command -v yarn &>/dev/null ;;
+        pip-cache) command -v pip &>/dev/null || command -v pip3 &>/dev/null ;;
+        cargo-cache) [[ -d "$HOME/.cargo" ]] ;;
+        go-cache) command -v go &>/dev/null ;;
+        docker-cruft) command -v docker &>/dev/null ;;
+        ide-caches)
+            [[ -d "$HOME/Library/Application Support/Code" ]] || \
+            [[ -d "$HOME/.config/Code" ]] || \
+            [[ -d "$HOME/Library/Caches/JetBrains" ]] || \
+            [[ -d "$HOME/.cache/JetBrains" ]] ;;
+        mail-cache)
+            if [[ "$OS" == "macos" ]]; then
+                [[ -d "$HOME/Library/Containers/com.apple.mail" ]]
+            else
+                [[ -d "$HOME/.thunderbird" ]]
+            fi ;;
+        *) return 0 ;;
+    esac
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PICKER UI
+# ═══════════════════════════════════════════════════════════════════
+clean_picker() {
+    print_section "Select Categories"
+    echo -e "  ${DIM}Toggle categories, then press Enter to continue.${NC}"
+    echo ""
+
+    # Start with all selected
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        CLEAN_CATEGORIES[$cat]=1
+    done
+
+    while true; do
+        for i in "${!CLEAN_CAT_ORDER[@]}"; do
+            local cat="${CLEAN_CAT_ORDER[$i]}"
+            local num=$((i + 1))
+            local mark=" "
+            [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]] && mark="*"
+            echo -e "  ${CYAN}[$num]${NC} [${mark}] ${CLEAN_CAT_NAMES[$cat]}"
+        done
+        echo ""
+        echo -e "  ${CYAN}[A]${NC} Select All    ${CYAN}[N]${NC} Select None"
+        echo ""
+        echo -ne "  ${BOLD}Toggle (1-7, A, N) or Enter to continue:${NC} "
+        read -r input
+
+        if [[ -z "$input" ]]; then
+            local any=0
+            for cat in "${CLEAN_CAT_ORDER[@]}"; do
+                [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]] && any=1 && break
+            done
+            if [[ $any -eq 0 ]]; then
+                echo -e "  ${RED}Select at least one category.${NC}"
+                continue
+            fi
+            break
+        fi
+
+        case "${input,,}" in
+            a)
+                for cat in "${CLEAN_CAT_ORDER[@]}"; do
+                    CLEAN_CATEGORIES[$cat]=1
+                done ;;
+            n)
+                for cat in "${CLEAN_CAT_ORDER[@]}"; do
+                    CLEAN_CATEGORIES[$cat]=0
+                done ;;
+            [1-7])
+                local cat="${CLEAN_CAT_ORDER[$((input - 1))]}"
+                if [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]]; then
+                    CLEAN_CATEGORIES[$cat]=0
+                else
+                    CLEAN_CATEGORIES[$cat]=1
+                fi ;;
+            *)
+                echo -e "  ${RED}Invalid input.${NC}" ;;
+        esac
+        echo ""
+    done
+
+    # Populate CLEAN_TARGETS
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        if [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]]; then
+            for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+                if clean_target_available "$target"; then
+                    CLEAN_TARGETS[$target]=1
+                fi
+            done
+        fi
+    done
+}
+
+clean_drilldown() {
+    echo ""
+    echo -ne "  ${BOLD}Drill into individual targets? (y/N):${NC} "
+    read -r drill
+    [[ "${drill,,}" != "y" ]] && return
+
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        [[ "${CLEAN_CATEGORIES[$cat]}" != "1" ]] && continue
+
+        local -a avail=()
+        for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+            if clean_target_available "$target"; then
+                avail+=("$target")
+            fi
+        done
+        [[ ${#avail[@]} -eq 0 ]] && continue
+
+        echo ""
+        echo -e "  ${BOLD}── ${CLEAN_CAT_NAMES[$cat]} ──${NC}"
+
+        while true; do
+            for i in "${!avail[@]}"; do
+                local t="${avail[$i]}"
+                local num=$((i + 1))
+                local mark=" "
+                [[ "${CLEAN_TARGETS[$t]:-0}" == "1" ]] && mark="*"
+                echo -e "    ${CYAN}[$num]${NC} [${mark}] ${CLEAN_TARGET_NAMES[$t]}"
+            done
+            echo ""
+            echo -ne "    ${BOLD}Toggle (1-${#avail[@]}) or Enter to keep:${NC} "
+            read -r input
+
+            [[ -z "$input" ]] && break
+
+            if [[ "$input" =~ ^[0-9]+$ ]] && (( input >= 1 && input <= ${#avail[@]} )); then
+                local t="${avail[$((input - 1))]}"
+                if [[ "${CLEAN_TARGETS[$t]:-0}" == "1" ]]; then
+                    CLEAN_TARGETS[$t]=0
+                else
+                    CLEAN_TARGETS[$t]=1
+                fi
+            else
+                echo -e "    ${RED}Invalid input.${NC}"
+            fi
+            echo ""
+        done
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # SYSTEM CLEANER
 # ═══════════════════════════════════════════════════════════════════
 run_clean() {
@@ -4761,8 +4992,12 @@ run_clean() {
     echo -e "${CYAN}║${NC}${BOLD}          SYSTEM CLEANER v${VERSION}                 ${NC}${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}          macOS / Linux                           ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+
+    clean_picker
+    clean_drilldown
+
     echo ""
-    echo -e "  ${DIM}(coming soon)${NC}"
+    echo -e "  ${DIM}(scan/preview coming in next task)${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════
