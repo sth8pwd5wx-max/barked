@@ -5956,6 +5956,120 @@ clean_execute() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — SCORE, SUMMARY, AND LOG
+# ═══════════════════════════════════════════════════════════════════
+
+calculate_clean_score() {
+    local earned=0 possible=0
+
+    for target in "${!CLEAN_TARGETS[@]}"; do
+        [[ "${CLEAN_TARGETS[$target]}" != "1" ]] && continue
+        local sev="${CLEAN_SEVERITY[$target]:-LOW}"
+        local weight="${SEVERITY_WEIGHT[$sev]}"
+        possible=$((possible + weight))
+
+        local status="${CLEAN_RESULT_STATUS[$target]:-skip}"
+        case "$status" in
+            pass|skip) earned=$((earned + weight)) ;;
+            partial)   earned=$((earned + weight / 2)) ;;
+            fail)      ;;
+        esac
+    done
+
+    local pct=0
+    [[ $possible -gt 0 ]] && pct=$(( (earned * 100) / possible ))
+    echo "$earned $possible $pct"
+}
+
+print_clean_summary() {
+    local -a ordered_targets=()
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+            if [[ "${CLEAN_TARGETS[$target]:-0}" == "1" ]]; then
+                ordered_targets+=("$target")
+            fi
+        done
+    done
+
+    local total_files=0 total_bytes=0
+
+    echo ""
+    echo -e "  ${BOLD}${WHITE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${BOLD}${WHITE}║                  CLEANING SUMMARY                        ║${NC}"
+    echo -e "  ${BOLD}${WHITE}╠══════════════════════════════════════════════════════════╣${NC}"
+    printf "  ${BOLD}  %-32s %8s %10s %8s${NC}\n" "Target" "Removed" "Freed" "Status"
+    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+
+    for target in "${ordered_targets[@]}"; do
+        local files="${CLEAN_RESULT_FILES[$target]:-0}"
+        local bytes="${CLEAN_RESULT_BYTES[$target]:-0}"
+        local status="${CLEAN_RESULT_STATUS[$target]:-skip}"
+
+        local file_str="$files"
+        [[ $files -eq 0 ]] && file_str="—"
+        local size_str="—"
+        [[ $bytes -gt 0 ]] && size_str=$(format_bytes "$bytes")
+
+        local status_str color
+        case "$status" in
+            pass)    status_str="PASS";    color="$GREEN" ;;
+            skip)    status_str="SKIP";    color="$DIM" ;;
+            fail)    status_str="FAIL";    color="$RED" ;;
+            partial) status_str="PARTIAL"; color="$YELLOW" ;;
+        esac
+
+        printf "  ${color}  %-32s %8s %10s %8s${NC}\n" \
+            "${CLEAN_TARGET_NAMES[$target]}" "$file_str" "$size_str" "$status_str"
+
+        total_files=$((total_files + files))
+        total_bytes=$((total_bytes + bytes))
+    done
+
+    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+    printf "  ${BOLD}  %-32s %8s %10s${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
+    echo -e "  ${BOLD}${WHITE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    local score_output
+    score_output=$(calculate_clean_score)
+    local earned possible pct
+    read -r earned possible pct <<< "$score_output"
+
+    local color="$RED"
+    if [[ $pct -ge 80 ]]; then color="$GREEN"
+    elif [[ $pct -ge 50 ]]; then color="$YELLOW"
+    fi
+
+    local width=20
+    local filled=$(( (pct * width) / 100 ))
+    local empty=$(( width - filled ))
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    for ((i=0; i<empty; i++)); do bar+="░"; done
+
+    echo -e "  ${BOLD}Cleanliness Score: ${color}${pct}/100${NC} [${color}${bar}${NC}]"
+    echo ""
+}
+
+write_clean_log() {
+    mkdir -p "$(dirname "$CLEAN_LOG_FILE")"
+    {
+        if [[ -f "$CLEAN_LOG_FILE" ]]; then
+            echo ""
+            echo "────────────────────────────────────────"
+            echo ""
+        fi
+        echo "# System Cleaner Log — $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "OS: ${OS} | Date: ${DATE}"
+        echo ""
+        for entry in "${CLEAN_LOG[@]}"; do
+            echo "$entry"
+        done
+    } >> "$CLEAN_LOG_FILE"
+    echo -e "  ${DIM}Log: ${CLEAN_LOG_FILE}${NC}"
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # SYSTEM CLEANER — MAIN ENTRY
 # ═══════════════════════════════════════════════════════════════════
 run_clean() {
@@ -5988,9 +6102,12 @@ run_clean() {
     fi
 
     clean_execute
+    print_clean_summary
+    write_clean_log
 
     echo ""
-    echo -e "  ${DIM}(summary and scoring coming in next task)${NC}"
+    echo -e "  ${DIM}Re-run with --clean anytime — safe to repeat.${NC}"
+    echo ""
 }
 
 # ═══════════════════════════════════════════════════════════════════
