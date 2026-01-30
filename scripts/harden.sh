@@ -5439,6 +5439,523 @@ clean_preview() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — CLEAN HELPERS & SAFETY
+# ═══════════════════════════════════════════════════════════════════
+
+clean_log() {
+    local action="$1" message="$2"
+    local entry="$(date '+%Y-%m-%d %H:%M:%S') [$action] $message"
+    CLEAN_LOG+=("$entry")
+}
+
+browser_running() {
+    local process_name="$1"
+    pgrep -x "$process_name" &>/dev/null
+}
+
+safe_rm_contents() {
+    local dir="$1"
+    if [[ ! -d "$dir" ]]; then return 1; fi
+    local real_dir
+    real_dir=$(cd "$dir" 2>/dev/null && pwd -P)
+    if [[ -z "$real_dir" ]]; then return 1; fi
+
+    local files_removed=0 bytes_freed=0
+    while IFS= read -r -d '' file; do
+        local mod_time
+        if [[ "$OS" == "macos" ]]; then
+            mod_time=$(stat -f '%m' "$file" 2>/dev/null)
+        else
+            mod_time=$(stat -c '%Y' "$file" 2>/dev/null)
+        fi
+        local now
+        now=$(date +%s)
+        if [[ -n "$mod_time" && $(( now - mod_time )) -lt 60 ]]; then
+            clean_log "SKIP" "$file (modified < 60s ago)"
+            continue
+        fi
+
+        local fsize
+        if [[ "$OS" == "macos" ]]; then
+            fsize=$(stat -f '%z' "$file" 2>/dev/null || echo 0)
+        else
+            fsize=$(stat -c '%s' "$file" 2>/dev/null || echo 0)
+        fi
+        if rm -f "$file" 2>/dev/null; then
+            bytes_freed=$((bytes_freed + fsize))
+            ((files_removed++))
+            clean_log "CLEAN" "Removed $file ($(format_bytes "$fsize"))"
+        else
+            clean_log "FAIL" "$file (permission denied)"
+        fi
+    done < <(find "$real_dir" -not -type l -type f -print0 2>/dev/null)
+
+    find "$real_dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+
+    SAFE_RM_FILES=$files_removed
+    SAFE_RM_BYTES=$bytes_freed
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PER-TARGET CLEAN FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+
+clean_system_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "/Library/Caches"
+    else
+        local total_f=0 total_b=0
+        for d in /var/cache/apt/archives /var/cache/dnf /var/cache/pacman/pkg; do
+            if [[ -d "$d" ]]; then
+                safe_rm_contents "$d"
+                total_f=$((total_f + SAFE_RM_FILES))
+                total_b=$((total_b + SAFE_RM_BYTES))
+            fi
+        done
+        SAFE_RM_FILES=$total_f; SAFE_RM_BYTES=$total_b
+    fi
+    CLEAN_RESULT_FILES[system-cache]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[system-cache]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[system-cache]="pass" || CLEAN_RESULT_STATUS[system-cache]="skip"
+}
+
+clean_system_logs() {
+    if [[ "$OS" == "macos" ]]; then
+        local total_f=0 total_b=0
+        for d in /Library/Logs /var/log/asl; do
+            if [[ -d "$d" ]]; then
+                safe_rm_contents "$d"
+                total_f=$((total_f + SAFE_RM_FILES))
+                total_b=$((total_b + SAFE_RM_BYTES))
+            fi
+        done
+        SAFE_RM_FILES=$total_f; SAFE_RM_BYTES=$total_b
+    else
+        SAFE_RM_FILES=0; SAFE_RM_BYTES=0
+        if command -v journalctl &>/dev/null; then
+            journalctl --vacuum-time=7d &>/dev/null && clean_log "CLEAN" "Vacuumed journald logs (7d retention)"
+        fi
+    fi
+    CLEAN_RESULT_FILES[system-logs]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[system-logs]=$SAFE_RM_BYTES
+    CLEAN_RESULT_STATUS[system-logs]="pass"
+}
+
+clean_diagnostic_reports() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "/Library/Logs/DiagnosticReports"
+    else
+        safe_rm_contents "/var/crash"
+    fi
+    CLEAN_RESULT_FILES[diagnostic-reports]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[diagnostic-reports]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[diagnostic-reports]="pass" || CLEAN_RESULT_STATUS[diagnostic-reports]="skip"
+}
+
+clean_dns_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        dscacheutil -flushcache 2>/dev/null && sudo killall -HUP mDNSResponder 2>/dev/null
+        clean_log "CLEAN" "Flushed DNS cache (dscacheutil + mDNSResponder)"
+    else
+        if command -v systemd-resolve &>/dev/null; then
+            systemd-resolve --flush-caches 2>/dev/null
+        elif command -v resolvectl &>/dev/null; then
+            resolvectl flush-caches 2>/dev/null
+        fi
+        clean_log "CLEAN" "Flushed DNS cache"
+    fi
+    CLEAN_RESULT_FILES[dns-cache]=0
+    CLEAN_RESULT_BYTES[dns-cache]=0
+    CLEAN_RESULT_STATUS[dns-cache]="pass"
+}
+
+clean_user_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Caches"
+    else
+        safe_rm_contents "$HOME/.cache"
+    fi
+    CLEAN_RESULT_FILES[user-cache]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[user-cache]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[user-cache]="pass" || CLEAN_RESULT_STATUS[user-cache]="skip"
+}
+
+clean_user_logs() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Logs"
+    else
+        safe_rm_contents "$HOME/.local/share/logs"
+    fi
+    CLEAN_RESULT_FILES[user-logs]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[user-logs]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[user-logs]="pass" || CLEAN_RESULT_STATUS[user-logs]="skip"
+}
+
+clean_saved_app_state() {
+    safe_rm_contents "$HOME/Library/Saved Application State"
+    CLEAN_RESULT_FILES[saved-app-state]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[saved-app-state]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[saved-app-state]="pass" || CLEAN_RESULT_STATUS[saved-app-state]="skip"
+}
+
+clean_safari() {
+    if browser_running "Safari"; then
+        echo -e "  ${YELLOW}⚠${NC}  Safari is running — close it first to clean"
+        clean_log "SKIP" "Safari (browser running)"
+        CLEAN_RESULT_FILES[safari]=0; CLEAN_RESULT_BYTES[safari]=0; CLEAN_RESULT_STATUS[safari]="fail"
+        return
+    fi
+    local total_f=0 total_b=0
+    for d in "$HOME/Library/Caches/com.apple.Safari" \
+             "$HOME/Library/Safari/LocalStorage" \
+             "$HOME/Library/Safari/Databases" \
+             "$HOME/Library/Cookies"; do
+        safe_rm_contents "$d"
+        total_f=$((total_f + SAFE_RM_FILES))
+        total_b=$((total_b + SAFE_RM_BYTES))
+    done
+    CLEAN_RESULT_FILES[safari]=$total_f
+    CLEAN_RESULT_BYTES[safari]=$total_b
+    [[ $total_f -gt 0 ]] && CLEAN_RESULT_STATUS[safari]="pass" || CLEAN_RESULT_STATUS[safari]="skip"
+}
+
+clean_chrome() {
+    if browser_running "Google Chrome"; then
+        echo -e "  ${YELLOW}⚠${NC}  Chrome is running — close it first to clean"
+        clean_log "SKIP" "Chrome (browser running)"
+        CLEAN_RESULT_FILES[chrome]=0; CLEAN_RESULT_BYTES[chrome]=0; CLEAN_RESULT_STATUS[chrome]="fail"
+        return
+    fi
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Caches/Google/Chrome"
+    else
+        safe_rm_contents "$HOME/.cache/google-chrome"
+    fi
+    CLEAN_RESULT_FILES[chrome]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[chrome]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[chrome]="pass" || CLEAN_RESULT_STATUS[chrome]="skip"
+}
+
+clean_firefox() {
+    if browser_running "firefox"; then
+        echo -e "  ${YELLOW}⚠${NC}  Firefox is running — close it first to clean"
+        clean_log "SKIP" "Firefox (browser running)"
+        CLEAN_RESULT_FILES[firefox]=0; CLEAN_RESULT_BYTES[firefox]=0; CLEAN_RESULT_STATUS[firefox]="fail"
+        return
+    fi
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Caches/Firefox"
+    else
+        safe_rm_contents "$HOME/.cache/mozilla/firefox"
+    fi
+    CLEAN_RESULT_FILES[firefox]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[firefox]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[firefox]="pass" || CLEAN_RESULT_STATUS[firefox]="skip"
+}
+
+clean_arc() {
+    if browser_running "Arc"; then
+        echo -e "  ${YELLOW}⚠${NC}  Arc is running — close it first to clean"
+        clean_log "SKIP" "Arc (browser running)"
+        CLEAN_RESULT_FILES[arc]=0; CLEAN_RESULT_BYTES[arc]=0; CLEAN_RESULT_STATUS[arc]="fail"
+        return
+    fi
+    safe_rm_contents "$HOME/Library/Caches/Arc"
+    CLEAN_RESULT_FILES[arc]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[arc]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[arc]="pass" || CLEAN_RESULT_STATUS[arc]="skip"
+}
+
+clean_edge() {
+    if browser_running "Microsoft Edge"; then
+        echo -e "  ${YELLOW}⚠${NC}  Edge is running — close it first to clean"
+        clean_log "SKIP" "Edge (browser running)"
+        CLEAN_RESULT_FILES[edge]=0; CLEAN_RESULT_BYTES[edge]=0; CLEAN_RESULT_STATUS[edge]="fail"
+        return
+    fi
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Caches/Microsoft Edge"
+    else
+        safe_rm_contents "$HOME/.cache/microsoft-edge"
+    fi
+    CLEAN_RESULT_FILES[edge]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[edge]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[edge]="pass" || CLEAN_RESULT_STATUS[edge]="skip"
+}
+
+clean_recent_items() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Application Support/com.apple.sharedfilelist"
+    else
+        if [[ -f "$HOME/.local/share/recently-used.xbel" ]]; then
+            rm -f "$HOME/.local/share/recently-used.xbel" 2>/dev/null
+            clean_log "CLEAN" "Removed recently-used.xbel"
+        fi
+    fi
+    CLEAN_RESULT_FILES[recent-items]=${SAFE_RM_FILES:-1}
+    CLEAN_RESULT_BYTES[recent-items]=${SAFE_RM_BYTES:-0}
+    CLEAN_RESULT_STATUS[recent-items]="pass"
+}
+
+clean_quicklook_thumbs() {
+    safe_rm_contents "$HOME/Library/Caches/com.apple.QuickLook.thumbnailcache"
+    qlmanage -r cache &>/dev/null
+    clean_log "CLEAN" "Reset QuickLook thumbnail cache"
+    CLEAN_RESULT_FILES[quicklook-thumbs]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[quicklook-thumbs]=$SAFE_RM_BYTES
+    CLEAN_RESULT_STATUS[quicklook-thumbs]="pass"
+}
+
+clean_ds_store() {
+    local count=0 bytes=0
+    while IFS= read -r -d '' file; do
+        local fsize
+        fsize=$(stat -f '%z' "$file" 2>/dev/null || echo 0)
+        if rm -f "$file" 2>/dev/null; then
+            bytes=$((bytes + fsize))
+            ((count++))
+        fi
+    done < <(find "$HOME" -name ".DS_Store" -maxdepth 10 -not -type l -print0 2>/dev/null)
+    clean_log "CLEAN" "Removed $count .DS_Store files"
+    CLEAN_RESULT_FILES[ds-store]=$count
+    CLEAN_RESULT_BYTES[ds-store]=$bytes
+    [[ $count -gt 0 ]] && CLEAN_RESULT_STATUS[ds-store]="pass" || CLEAN_RESULT_STATUS[ds-store]="skip"
+}
+
+clean_clipboard() {
+    if [[ "$OS" == "macos" ]]; then
+        pbcopy </dev/null 2>/dev/null
+    else
+        if command -v xclip &>/dev/null; then
+            echo -n | xclip -selection clipboard 2>/dev/null
+        elif command -v xsel &>/dev/null; then
+            xsel --clipboard --clear 2>/dev/null
+        fi
+    fi
+    clean_log "CLEAN" "Cleared clipboard"
+    CLEAN_RESULT_FILES[clipboard]=0
+    CLEAN_RESULT_BYTES[clipboard]=0
+    CLEAN_RESULT_STATUS[clipboard]="pass"
+}
+
+clean_search_metadata() {
+    if [[ "$OS" == "macos" ]]; then
+        echo -e "  ${YELLOW}☐${NC}  Spotlight: To rebuild, run: sudo mdutil -E /"
+        clean_log "MANUAL" "Spotlight rebuild guidance shown"
+    else
+        if command -v tracker3 &>/dev/null; then
+            tracker3 reset -s &>/dev/null
+            clean_log "CLEAN" "Reset GNOME Tracker index"
+        elif command -v tracker &>/dev/null; then
+            tracker reset --hard &>/dev/null
+            clean_log "CLEAN" "Reset Tracker index"
+        fi
+    fi
+    CLEAN_RESULT_FILES[search-metadata]=0
+    CLEAN_RESULT_BYTES[search-metadata]=0
+    CLEAN_RESULT_STATUS[search-metadata]="pass"
+}
+
+clean_xcode_derived() {
+    safe_rm_contents "$HOME/Library/Developer/Xcode/DerivedData"
+    CLEAN_RESULT_FILES[xcode-derived]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[xcode-derived]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[xcode-derived]="pass" || CLEAN_RESULT_STATUS[xcode-derived]="skip"
+}
+
+clean_homebrew_cache() {
+    if command -v brew &>/dev/null; then
+        brew cleanup --prune=all -s &>/dev/null
+        clean_log "CLEAN" "Ran brew cleanup --prune=all"
+    fi
+    CLEAN_RESULT_FILES[homebrew-cache]=0
+    CLEAN_RESULT_BYTES[homebrew-cache]=0
+    CLEAN_RESULT_STATUS[homebrew-cache]="pass"
+}
+
+clean_npm_cache() {
+    if command -v npm &>/dev/null; then
+        npm cache clean --force &>/dev/null
+        clean_log "CLEAN" "Ran npm cache clean --force"
+    fi
+    CLEAN_RESULT_FILES[npm-cache]=0
+    CLEAN_RESULT_BYTES[npm-cache]=0
+    CLEAN_RESULT_STATUS[npm-cache]="pass"
+}
+
+clean_yarn_cache() {
+    if command -v yarn &>/dev/null; then
+        yarn cache clean &>/dev/null
+        clean_log "CLEAN" "Ran yarn cache clean"
+    fi
+    CLEAN_RESULT_FILES[yarn-cache]=0
+    CLEAN_RESULT_BYTES[yarn-cache]=0
+    CLEAN_RESULT_STATUS[yarn-cache]="pass"
+}
+
+clean_pip_cache() {
+    local pip_cmd="pip3"
+    command -v pip3 &>/dev/null || pip_cmd="pip"
+    if command -v "$pip_cmd" &>/dev/null; then
+        $pip_cmd cache purge &>/dev/null
+        clean_log "CLEAN" "Ran $pip_cmd cache purge"
+    fi
+    CLEAN_RESULT_FILES[pip-cache]=0
+    CLEAN_RESULT_BYTES[pip-cache]=0
+    CLEAN_RESULT_STATUS[pip-cache]="pass"
+}
+
+clean_cargo_cache() {
+    safe_rm_contents "$HOME/.cargo/registry/cache"
+    CLEAN_RESULT_FILES[cargo-cache]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[cargo-cache]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[cargo-cache]="pass" || CLEAN_RESULT_STATUS[cargo-cache]="skip"
+}
+
+clean_go_cache() {
+    if command -v go &>/dev/null; then
+        go clean -cache &>/dev/null
+        clean_log "CLEAN" "Ran go clean -cache"
+    fi
+    CLEAN_RESULT_FILES[go-cache]=0
+    CLEAN_RESULT_BYTES[go-cache]=0
+    CLEAN_RESULT_STATUS[go-cache]="pass"
+}
+
+clean_cocoapods_cache() {
+    safe_rm_contents "$HOME/Library/Caches/CocoaPods"
+    CLEAN_RESULT_FILES[cocoapods-cache]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[cocoapods-cache]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[cocoapods-cache]="pass" || CLEAN_RESULT_STATUS[cocoapods-cache]="skip"
+}
+
+clean_docker_cruft() {
+    if command -v docker &>/dev/null; then
+        docker system prune -f &>/dev/null
+        clean_log "CLEAN" "Ran docker system prune -f"
+    fi
+    CLEAN_RESULT_FILES[docker-cruft]=0
+    CLEAN_RESULT_BYTES[docker-cruft]=0
+    CLEAN_RESULT_STATUS[docker-cruft]="pass"
+}
+
+clean_ide_caches() {
+    local total_f=0 total_b=0
+    for d in "$HOME/Library/Application Support/Code/Cache" \
+             "$HOME/.config/Code/Cache" \
+             "$HOME/Library/Caches/JetBrains" \
+             "$HOME/.cache/JetBrains"; do
+        if [[ -d "$d" ]]; then
+            safe_rm_contents "$d"
+            total_f=$((total_f + SAFE_RM_FILES))
+            total_b=$((total_b + SAFE_RM_BYTES))
+        fi
+    done
+    CLEAN_RESULT_FILES[ide-caches]=$total_f
+    CLEAN_RESULT_BYTES[ide-caches]=$total_b
+    [[ $total_f -gt 0 ]] && CLEAN_RESULT_STATUS[ide-caches]="pass" || CLEAN_RESULT_STATUS[ide-caches]="skip"
+}
+
+clean_trash() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/.Trash"
+    else
+        safe_rm_contents "$HOME/.local/share/Trash"
+    fi
+    CLEAN_RESULT_FILES[trash]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[trash]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[trash]="pass" || CLEAN_RESULT_STATUS[trash]="skip"
+}
+
+clean_old_downloads() {
+    SAFE_RM_FILES=0; SAFE_RM_BYTES=0
+    while IFS= read -r -d '' file; do
+        local fsize
+        if [[ "$OS" == "macos" ]]; then
+            fsize=$(stat -f '%z' "$file" 2>/dev/null || echo 0)
+        else
+            fsize=$(stat -c '%s' "$file" 2>/dev/null || echo 0)
+        fi
+        if rm -f "$file" 2>/dev/null; then
+            SAFE_RM_BYTES=$((SAFE_RM_BYTES + fsize))
+            ((SAFE_RM_FILES++))
+            clean_log "CLEAN" "Removed $file ($(format_bytes "$fsize"))"
+        fi
+    done < <(find "$HOME/Downloads" -maxdepth 1 -not -type l -type f -mtime +30 -print0 2>/dev/null)
+    CLEAN_RESULT_FILES[old-downloads]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[old-downloads]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[old-downloads]="pass" || CLEAN_RESULT_STATUS[old-downloads]="skip"
+}
+
+clean_mail_cache() {
+    if [[ "$OS" == "macos" ]]; then
+        safe_rm_contents "$HOME/Library/Containers/com.apple.mail/Data/Library/Caches"
+    else
+        if [[ -d "$HOME/.thunderbird" ]]; then
+            find "$HOME/.thunderbird" -name "*.msf" -delete 2>/dev/null
+            clean_log "CLEAN" "Removed Thunderbird index files"
+        fi
+        SAFE_RM_FILES=0; SAFE_RM_BYTES=0
+    fi
+    CLEAN_RESULT_FILES[mail-cache]=${SAFE_RM_FILES:-0}
+    CLEAN_RESULT_BYTES[mail-cache]=${SAFE_RM_BYTES:-0}
+    CLEAN_RESULT_STATUS[mail-cache]="pass"
+}
+
+clean_messages_attachments() {
+    safe_rm_contents "$HOME/Library/Messages/Attachments"
+    CLEAN_RESULT_FILES[messages-attachments]=$SAFE_RM_FILES
+    CLEAN_RESULT_BYTES[messages-attachments]=$SAFE_RM_BYTES
+    [[ $SAFE_RM_FILES -gt 0 ]] && CLEAN_RESULT_STATUS[messages-attachments]="pass" || CLEAN_RESULT_STATUS[messages-attachments]="skip"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — EXECUTION ORCHESTRATOR
+# ═══════════════════════════════════════════════════════════════════
+
+clean_execute() {
+    print_section "Cleaning ($(date '+%H:%M:%S'))"
+
+    local -a ordered_targets=()
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+            if [[ "${CLEAN_TARGETS[$target]:-0}" == "1" ]]; then
+                ordered_targets+=("$target")
+            fi
+        done
+    done
+
+    local total=${#ordered_targets[@]}
+    local current=0
+
+    for target in "${ordered_targets[@]}"; do
+        ((current++))
+        echo -ne "  ${YELLOW}⟳${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}..."
+
+        local func="clean_${target//-/_}"
+        if declare -f "$func" &>/dev/null; then
+            "$func"
+        else
+            CLEAN_RESULT_STATUS[$target]="fail"
+            clean_log "FAIL" "$target — no clean function"
+        fi
+
+        echo -ne "\r\033[K"
+        local status="${CLEAN_RESULT_STATUS[$target]:-skip}"
+        local freed="${CLEAN_RESULT_BYTES[$target]:-0}"
+        local freed_str=""
+        [[ $freed -gt 0 ]] && freed_str=" ($(format_bytes $freed))"
+
+        case "$status" in
+            pass)    echo -e "  ${GREEN}✓${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}${freed_str}" ;;
+            skip)    echo -e "  ${GREEN}○${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]} ${DIM}(nothing to clean)${NC}" ;;
+            fail)    echo -e "  ${RED}✗${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]} ${RED}(failed)${NC}" ;;
+            partial) echo -e "  ${YELLOW}◐${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}${freed_str} ${YELLOW}(partial)${NC}" ;;
+        esac
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # SYSTEM CLEANER — MAIN ENTRY
 # ═══════════════════════════════════════════════════════════════════
 run_clean() {
@@ -5470,8 +5987,10 @@ run_clean() {
         fi
     fi
 
+    clean_execute
+
     echo ""
-    echo -e "  ${DIM}(cleaning execution coming in next task)${NC}"
+    echo -e "  ${DIM}(summary and scoring coming in next task)${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════
