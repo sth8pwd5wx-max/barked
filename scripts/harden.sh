@@ -74,6 +74,26 @@ declare -a STATE_PACKAGES=()    # packages installed by script
 STATE_PROFILE=""
 STATE_LAST_RUN=""
 
+# Severity weights: Critical=10, High=7, Medium=4, Low=2
+declare -A MODULE_SEVERITY=(
+    [disk-encrypt]=10     [firewall-inbound]=10  [auto-updates]=10     [lock-screen]=10
+    [firewall-stealth]=7  [firewall-outbound]=7  [dns-secure]=7        [ssh-harden]=7
+    [guest-disable]=7     [telemetry-disable]=7  [kernel-sysctl]=7
+    [hostname-scrub]=4    [git-harden]=4         [browser-basic]=4     [monitoring-tools]=4
+    [permissions-audit]=4 [apparmor-enforce]=4   [boot-security]=4
+    [browser-fingerprint]=2 [mac-rotate]=2       [vpn-killswitch]=2    [traffic-obfuscation]=2
+    [metadata-strip]=2    [dev-isolation]=2      [audit-script]=2      [backup-guidance]=2
+    [border-prep]=2       [bluetooth-disable]=2
+)
+
+# Advanced modules requiring vetting
+declare -a ADVANCED_MODULES=("kernel-sysctl" "apparmor-enforce" "boot-security")
+
+# Findings storage for audit/scoring
+declare -a FINDINGS_STATUS=()    # "pass", "fail", "manual", "skip", "partial"
+declare -a FINDINGS_MODULE=()    # module id
+declare -a FINDINGS_MESSAGE=()   # human-readable finding
+
 # Advanced questionnaire answers
 Q_THREAT=""
 Q_USECASE=""
@@ -174,6 +194,144 @@ pause_guide() {
         MANUAL_STEPS+=("$message")
         return 1
     fi
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SCORING & FINDINGS
+# ═══════════════════════════════════════════════════════════════════
+
+record_finding() {
+    local status="$1" mod_id="$2" message="$3"
+    FINDINGS_STATUS+=("$status")
+    FINDINGS_MODULE+=("$mod_id")
+    FINDINGS_MESSAGE+=("$message")
+}
+
+module_applicable() {
+    local mod_id="$1"
+    case "$mod_id" in
+        kernel-sysctl) [[ "$OS" == "linux" ]] ;;
+        *) return 0 ;;
+    esac
+}
+
+is_advanced_module() {
+    local mod_id="$1"
+    for adv in "${ADVANCED_MODULES[@]}"; do
+        [[ "$adv" == "$mod_id" ]] && return 0
+    done
+    return 1
+}
+
+severity_label() {
+    local weight="${MODULE_SEVERITY[$1]:-0}"
+    case "$weight" in
+        10) echo "CRITICAL" ;;
+        7)  echo "HIGH" ;;
+        4)  echo "MEDIUM" ;;
+        2)  echo "LOW" ;;
+        *)  echo "UNKNOWN" ;;
+    esac
+}
+
+SCORE_CURRENT=0
+SCORE_APPLIED_COUNT=0
+SCORE_TOTAL_COUNT=0
+
+calculate_score() {
+    local earned=0 possible=0 applied_count=0 total_count=0
+    for i in "${!FINDINGS_MODULE[@]}"; do
+        local mod_id="${FINDINGS_MODULE[$i]}"
+        local status="${FINDINGS_STATUS[$i]}"
+        local weight="${MODULE_SEVERITY[$mod_id]:-0}"
+        if [[ "$status" == "skip" ]]; then
+            continue
+        fi
+        possible=$((possible + weight))
+        total_count=$((total_count + 1))
+        if [[ "$status" == "pass" ]]; then
+            earned=$((earned + weight))
+            applied_count=$((applied_count + 1))
+        fi
+    done
+    if [[ $possible -gt 0 ]]; then
+        SCORE_CURRENT=$(( (earned * 100) / possible ))
+    else
+        SCORE_CURRENT=0
+    fi
+    SCORE_APPLIED_COUNT=$applied_count
+    SCORE_TOTAL_COUNT=$total_count
+}
+
+print_score_bar() {
+    local score=$1
+    local filled=$((score / 10))
+    local empty=$((10 - filled))
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    for ((i=0; i<empty; i++)); do bar+="░"; done
+    local color="$RED"
+    if [[ $score -ge 80 ]]; then color="$GREEN"
+    elif [[ $score -ge 50 ]]; then color="$YELLOW"
+    fi
+    echo -e "  ${BOLD}Hardening Score: ${color}${score}/100${NC} [${color}${bar}${NC}] — ${SCORE_APPLIED_COUNT} of ${SCORE_TOTAL_COUNT} modules applied"
+}
+
+print_findings_table() {
+    echo ""
+    printf "  ${BOLD}%-8s %-10s %-24s %s${NC}\n" "Status" "Severity" "Module" "Finding"
+    printf "  ${DIM}%-8s %-10s %-24s %s${NC}\n" "------" "--------" "------" "-------"
+    for i in "${!FINDINGS_MODULE[@]}"; do
+        local mod_id="${FINDINGS_MODULE[$i]}"
+        local status="${FINDINGS_STATUS[$i]}"
+        local message="${FINDINGS_MESSAGE[$i]}"
+        local sev
+        sev=$(severity_label "$mod_id")
+        local status_icon="" status_label="" color=""
+        case "$status" in
+            pass)    status_icon="✓" status_label="PASS"    color="$GREEN" ;;
+            fail)    status_icon="✗" status_label="FAIL"    color="$RED" ;;
+            manual)  status_icon="~" status_label="MANUAL"  color="$YELLOW" ;;
+            skip)    status_icon="—" status_label="N/A"     color="$DIM" ;;
+            partial) status_icon="◐" status_label="PARTIAL" color="$MAGENTA" ;;
+        esac
+        printf "  ${color}%-8s${NC} %-10s %-24s %s\n" "${status_icon} ${status_label}" "${sev}" "${mod_id}" "${message}"
+    done
+    echo ""
+}
+
+write_findings_report() {
+    local report_file="$1"
+    mkdir -p "$(dirname "$report_file")"
+    {
+        echo "# Security Audit Report — ${DATE}"
+        echo ""
+        echo "**OS:** ${OS} $([ -n "$DISTRO" ] && echo "(${DISTRO})")"
+        echo "**Profile:** ${PROFILE:-all}"
+        echo "**Generated:** ${TIMESTAMP}"
+        echo "**Hardening Score:** ${SCORE_CURRENT}/100 (${SCORE_APPLIED_COUNT}/${SCORE_TOTAL_COUNT} modules)"
+        echo ""
+        echo "## Findings"
+        echo ""
+        echo "| Status | Severity | Module | Finding |"
+        echo "|--------|----------|--------|---------|"
+        for i in "${!FINDINGS_MODULE[@]}"; do
+            local mod_id="${FINDINGS_MODULE[$i]}"
+            local status="${FINDINGS_STATUS[$i]}"
+            local message="${FINDINGS_MESSAGE[$i]}"
+            local sev
+            sev=$(severity_label "$mod_id")
+            local icon=""
+            case "$status" in
+                pass) icon="PASS" ;; fail) icon="FAIL" ;; manual) icon="MANUAL" ;;
+                skip) icon="N/A" ;; partial) icon="PARTIAL" ;;
+            esac
+            echo "| ${icon} | ${sev} | ${mod_id} | ${message} |"
+        done
+        echo ""
+        echo "---"
+        echo "Generated by harden.sh v${VERSION}"
+    } > "$report_file"
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -462,6 +620,156 @@ state_count_applied() {
         [[ "${STATE_MODULES[$mod_id]}" == "applied" ]] && ((count++))
     done
     echo "$count"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SEVERITY MAP & SCORING
+# ═══════════════════════════════════════════════════════════════════
+
+# Fixed severity weights: CRITICAL=10, HIGH=7, MEDIUM=4, LOW=2
+declare -A MODULE_SEVERITY=(
+    [disk-encrypt]="CRITICAL"
+    [firewall-inbound]="CRITICAL"
+    [auto-updates]="CRITICAL"
+    [lock-screen]="CRITICAL"
+    [firewall-stealth]="HIGH"
+    [firewall-outbound]="HIGH"
+    [dns-secure]="HIGH"
+    [ssh-harden]="HIGH"
+    [guest-disable]="HIGH"
+    [telemetry-disable]="HIGH"
+    [kernel-sysctl]="HIGH"
+    [hostname-scrub]="MEDIUM"
+    [git-harden]="MEDIUM"
+    [browser-basic]="MEDIUM"
+    [monitoring-tools]="MEDIUM"
+    [permissions-audit]="MEDIUM"
+    [apparmor-enforce]="MEDIUM"
+    [boot-security]="MEDIUM"
+    [browser-fingerprint]="LOW"
+    [mac-rotate]="LOW"
+    [vpn-killswitch]="LOW"
+    [traffic-obfuscation]="LOW"
+    [metadata-strip]="LOW"
+    [dev-isolation]="LOW"
+    [audit-script]="LOW"
+    [backup-guidance]="LOW"
+    [border-prep]="LOW"
+    [bluetooth-disable]="LOW"
+)
+
+declare -A SEVERITY_WEIGHT=(
+    [CRITICAL]=10
+    [HIGH]=7
+    [MEDIUM]=4
+    [LOW]=2
+)
+
+# Advanced modules requiring vetting
+declare -A ADVANCED_MODULES=(
+    [kernel-sysctl]=1
+    [apparmor-enforce]=1
+    [boot-security]=1
+)
+
+severity_weight() {
+    local mod_id="$1"
+    local sev="${MODULE_SEVERITY[$mod_id]:-LOW}"
+    echo "${SEVERITY_WEIGHT[$sev]}"
+}
+
+# Calculate hardening score for a set of modules
+# Args: $1 = name of array with all module IDs, $2 = name of array with applied module IDs
+# Outputs: "applied_weight total_weight percentage applied_count total_count"
+calculate_score() {
+    local -n _all_mods=$1
+    local -n _applied_mods=$2
+    local total_weight=0
+    local applied_weight=0
+    local total_count=0
+    local applied_count=0
+
+    local -A _applied_set=()
+    for m in "${_applied_mods[@]}"; do
+        _applied_set[$m]=1
+    done
+
+    for mod_id in "${_all_mods[@]}"; do
+        local w
+        w=$(severity_weight "$mod_id")
+        total_weight=$((total_weight + w))
+        ((total_count++))
+        if [[ -n "${_applied_set[$mod_id]:-}" ]]; then
+            applied_weight=$((applied_weight + w))
+            ((applied_count++))
+        fi
+    done
+
+    local pct=0
+    if [[ $total_weight -gt 0 ]]; then
+        pct=$(( (applied_weight * 100) / total_weight ))
+    fi
+    echo "$applied_weight $total_weight $pct $applied_count $total_count"
+}
+
+# Print a progress bar: [████████░░]
+print_score_bar() {
+    local pct="$1"
+    local width=20
+    local filled=$(( (pct * width) / 100 ))
+    local empty=$(( width - filled ))
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    for ((i=0; i<empty; i++)); do bar+="░"; done
+
+    local color="$RED"
+    if [[ $pct -ge 80 ]]; then color="$GREEN"
+    elif [[ $pct -ge 50 ]]; then color="$YELLOW"
+    fi
+
+    echo -e "  ${BOLD}Hardening Score: ${color}${pct}/100${NC} [${color}${bar}${NC}]"
+}
+
+# Print severity-rated findings table
+# Takes associative array name: mod_id -> "STATUS|FINDING"
+# STATUS: PASS, FAIL, MANUAL, SKIP, N/A
+print_findings_table() {
+    local -n _findings=$1
+    local -n _mod_list=$2
+
+    local sev_order=("CRITICAL" "HIGH" "MEDIUM" "LOW")
+
+    if [[ "$QUIET_MODE" != true ]]; then
+        echo ""
+        printf "  ${BOLD}%-8s %-10s %-22s %s${NC}\n" "Status" "Severity" "Module" "Finding"
+        printf "  ${DIM}%-8s %-10s %-22s %s${NC}\n" "------" "--------" "--------------------" "-------"
+    fi
+
+    for sev in "${sev_order[@]}"; do
+        for mod_id in "${_mod_list[@]}"; do
+            [[ "${MODULE_SEVERITY[$mod_id]:-}" != "$sev" ]] && continue
+            local entry="${_findings[$mod_id]:-}"
+            [[ -z "$entry" ]] && continue
+
+            local status="${entry%%|*}"
+            local finding="${entry#*|}"
+
+            local icon="" color=""
+            case "$status" in
+                PASS)   icon="✓"; color="$GREEN" ;;
+                FAIL)   icon="✗"; color="$RED" ;;
+                MANUAL) icon="~"; color="$YELLOW" ;;
+                SKIP)   icon="○"; color="$DIM" ;;
+                N/A)    icon="—"; color="$DIM" ;;
+            esac
+
+            if [[ "$QUIET_MODE" != true ]]; then
+                printf "  ${color}%-8s${NC} %-10s %-22s %s\n" \
+                    "${icon} ${status}" "$sev" "$mod_id" "$finding"
+            fi
+        done
+    done
+    echo ""
 }
 
 # ═══════════════════════════════════════════════════════════════════
