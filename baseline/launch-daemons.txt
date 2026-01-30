@@ -1,0 +1,5 @@
+com.docker.socket.plist
+com.docker.vmnetd.plist
+com.objective-see.blockblock.plist
+com.objective-see.ransomwhere.plist
+net.mullvad.daemon.plist

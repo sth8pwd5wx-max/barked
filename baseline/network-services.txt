@@ -1,0 +1,4 @@
+An asterisk (*) denotes that a network service is disabled.
+*Thunderbolt Bridge
+Wi-Fi
+Tailscale
