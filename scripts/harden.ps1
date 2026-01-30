@@ -8,6 +8,9 @@
 param(
     [switch]$Uninstall,
     [switch]$Modify,
+    [switch]$Clean,
+    [switch]$Force,
+    [switch]$DryRun,
     [switch]$Help
 )
 
@@ -69,6 +72,80 @@ $script:QMaintenance = ""
 # Real user home (for user-level configs under admin elevation)
 $script:RealHome = $env:USERPROFILE
 $script:RealUser = $env:USERNAME
+
+# ═══════════════════════════════════════════════════════════════════
+# CLEAN MODE GLOBALS
+# ═══════════════════════════════════════════════════════════════════
+$script:CleanLogFile = Join-Path $script:AuditDir "clean-log-$($script:DATE).txt"
+$script:CleanCategories = @{
+    'system-caches' = $false; 'user-caches' = $false; 'browser-data' = $false
+    'privacy-traces' = $false; 'dev-cruft' = $false; 'trash-downloads' = $false
+    'mail-messages' = $false
+}
+$script:CleanTargets = @{}
+$script:CleanScanFiles = @{}
+$script:CleanScanBytes = @{}
+$script:CleanResultFiles = @{}
+$script:CleanResultBytes = @{}
+$script:CleanResultStatus = @{}
+$script:CleanLogEntries = @()
+
+$script:CleanCatOrder = @('system-caches','user-caches','browser-data','privacy-traces','dev-cruft','trash-downloads','mail-messages')
+
+$script:CleanCatNames = @{
+    'system-caches' = 'System Caches & Logs'; 'user-caches' = 'User Caches & Logs'
+    'browser-data' = 'Browser Data'; 'privacy-traces' = 'Privacy Traces'
+    'dev-cruft' = 'Developer Cruft'; 'trash-downloads' = 'Trash & Downloads'
+    'mail-messages' = 'Mail & Messages'
+}
+
+$script:CleanCatTargets = @{
+    'system-caches' = @('system-cache','system-logs','diagnostic-reports','dns-cache')
+    'user-caches' = @('user-cache','user-logs')
+    'browser-data' = @('chrome','firefox','edge')
+    'privacy-traces' = @('recent-items','clipboard','thumbnails')
+    'dev-cruft' = @('npm-cache','yarn-cache','pip-cache','cargo-cache','go-cache','docker-cruft','ide-caches')
+    'trash-downloads' = @('recycle-bin','old-downloads')
+    'mail-messages' = @('outlook-cache')
+}
+
+$script:CleanTargetNames = @{
+    'system-cache' = 'System cache (Windows\Temp)'
+    'system-logs' = 'System event logs'
+    'diagnostic-reports' = 'Windows Error Reports'
+    'dns-cache' = 'DNS cache'
+    'user-cache' = 'User temp files'
+    'user-logs' = 'Crash dumps'
+    'chrome' = 'Chrome cache & data'
+    'firefox' = 'Firefox cache & data'
+    'edge' = 'Edge cache & data'
+    'recent-items' = 'Recent items'
+    'clipboard' = 'Clipboard'
+    'thumbnails' = 'Thumbnail cache'
+    'npm-cache' = 'npm cache'
+    'yarn-cache' = 'yarn cache'
+    'pip-cache' = 'pip cache'
+    'cargo-cache' = 'Cargo cache'
+    'go-cache' = 'Go cache'
+    'docker-cruft' = 'Docker cruft'
+    'ide-caches' = 'IDE caches'
+    'recycle-bin' = 'Recycle Bin'
+    'old-downloads' = 'Old downloads (30+ days)'
+    'outlook-cache' = 'Outlook cache'
+}
+
+$script:CleanSeverity = @{
+    'system-cache' = 'MEDIUM'; 'system-logs' = 'MEDIUM'; 'diagnostic-reports' = 'LOW'
+    'dns-cache' = 'MEDIUM'; 'user-cache' = 'HIGH'; 'user-logs' = 'HIGH'
+    'chrome' = 'CRITICAL'; 'firefox' = 'CRITICAL'; 'edge' = 'CRITICAL'
+    'recent-items' = 'CRITICAL'; 'clipboard' = 'CRITICAL'; 'thumbnails' = 'HIGH'
+    'npm-cache' = 'MEDIUM'; 'yarn-cache' = 'MEDIUM'; 'pip-cache' = 'MEDIUM'
+    'cargo-cache' = 'MEDIUM'; 'go-cache' = 'MEDIUM'; 'docker-cruft' = 'MEDIUM'
+    'ide-caches' = 'MEDIUM'; 'recycle-bin' = 'LOW'; 'old-downloads' = 'LOW'
+    'outlook-cache' = 'HIGH'
+}
+
+$script:SeverityWeight = @{ 'CRITICAL' = 10; 'HIGH' = 7; 'MEDIUM' = 4; 'LOW' = 2 }
 
 # ═══════════════════════════════════════════════════════════════════
 # OUTPUT UTILITIES
@@ -2513,6 +2590,1139 @@ function Write-Log {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — AVAILABILITY CHECK
+# ═══════════════════════════════════════════════════════════════════
+function Test-CleanTargetAvailable {
+    param([string]$Target)
+    switch ($Target) {
+        'system-cache'        { return (Test-Path "C:\Windows\Temp") }
+        'system-logs'         { return $true }
+        'diagnostic-reports'  { return (Test-Path "C:\ProgramData\Microsoft\Windows\WER") }
+        'dns-cache'           { return $true }
+        'user-cache'          { return (Test-Path "$env:LOCALAPPDATA\Temp") }
+        'user-logs'           { return $true }
+        'chrome'              { return (Test-Path "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache") }
+        'firefox'             { return (Test-Path "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles") }
+        'edge'                { return (Test-Path "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache") }
+        'recent-items'        { return (Test-Path "$env:APPDATA\Microsoft\Windows\Recent") }
+        'clipboard'           { return $true }
+        'thumbnails' {
+            $thumbDir = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
+            if (Test-Path $thumbDir) {
+                return @(Get-ChildItem -Path $thumbDir -Filter "thumbcache_*" -ErrorAction SilentlyContinue).Count -gt 0
+            }
+            return $false
+        }
+        'npm-cache'           { return ($null -ne (Get-Command npm -ErrorAction SilentlyContinue)) }
+        'yarn-cache'          { return ($null -ne (Get-Command yarn -ErrorAction SilentlyContinue)) }
+        'pip-cache'           { return ($null -ne (Get-Command pip -ErrorAction SilentlyContinue)) -or ($null -ne (Get-Command pip3 -ErrorAction SilentlyContinue)) }
+        'cargo-cache'         { return (Test-Path "$env:USERPROFILE\.cargo") }
+        'go-cache'            { return ($null -ne (Get-Command go -ErrorAction SilentlyContinue)) }
+        'docker-cruft'        { return ($null -ne (Get-Command docker -ErrorAction SilentlyContinue)) }
+        'ide-caches' {
+            return (Test-Path "$env:APPDATA\Code\Cache") -or
+                   (Test-Path "$env:LOCALAPPDATA\JetBrains")
+        }
+        'recycle-bin'         { return $true }
+        'old-downloads'       { return (Test-Path "$env:USERPROFILE\Downloads") }
+        'outlook-cache'       { return (Test-Path "$env:LOCALAPPDATA\Microsoft\Outlook\RoamCache") }
+        default               { return $true }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PICKER UI
+# ═══════════════════════════════════════════════════════════════════
+function Show-CleanPicker {
+    Print-Section "Select Categories"
+    Write-ColorLine "  Toggle categories, then press Enter to continue." DarkGray
+    Write-Host ""
+
+    # Start with all selected
+    foreach ($cat in $script:CleanCatOrder) {
+        $script:CleanCategories[$cat] = $true
+    }
+
+    while ($true) {
+        for ($i = 0; $i -lt $script:CleanCatOrder.Count; $i++) {
+            $cat = $script:CleanCatOrder[$i]
+            $num = $i + 1
+            $mark = " "
+            if ($script:CleanCategories[$cat]) { $mark = "*" }
+            Write-Host "  " -NoNewline
+            Write-Color "[$num]" Cyan
+            Write-Host " [$mark] $($script:CleanCatNames[$cat])"
+        }
+        Write-Host ""
+        Write-Host "  " -NoNewline; Write-Color "[A]" Cyan; Write-Host " Select All    " -NoNewline
+        Write-Color "[N]" Cyan; Write-Host " Select None"
+        Write-Host ""
+        Write-Host "  Toggle (1-7, A, N) or Enter to continue: " -NoNewline -ForegroundColor White
+        $input = Read-Host
+
+        if ([string]::IsNullOrEmpty($input)) {
+            $any = $false
+            foreach ($cat in $script:CleanCatOrder) {
+                if ($script:CleanCategories[$cat]) { $any = $true; break }
+            }
+            if (-not $any) {
+                Write-ColorLine "  Select at least one category." Red
+                continue
+            }
+            break
+        }
+
+        switch ($input.ToLower()) {
+            'a' {
+                foreach ($cat in $script:CleanCatOrder) {
+                    $script:CleanCategories[$cat] = $true
+                }
+            }
+            'n' {
+                foreach ($cat in $script:CleanCatOrder) {
+                    $script:CleanCategories[$cat] = $false
+                }
+            }
+            default {
+                $num = 0
+                if ([int]::TryParse($input, [ref]$num) -and $num -ge 1 -and $num -le 7) {
+                    $cat = $script:CleanCatOrder[$num - 1]
+                    $script:CleanCategories[$cat] = -not $script:CleanCategories[$cat]
+                } else {
+                    Write-ColorLine "  Invalid input." Red
+                }
+            }
+        }
+        Write-Host ""
+    }
+
+    # Populate CleanTargets from selected categories
+    foreach ($cat in $script:CleanCatOrder) {
+        if ($script:CleanCategories[$cat]) {
+            foreach ($target in $script:CleanCatTargets[$cat]) {
+                if (Test-CleanTargetAvailable $target) {
+                    $script:CleanTargets[$target] = $true
+                }
+            }
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — DRILLDOWN UI
+# ═══════════════════════════════════════════════════════════════════
+function Show-CleanDrilldown {
+    Write-Host ""
+    Write-Host "  Drill into individual targets? (y/N): " -NoNewline -ForegroundColor White
+    $drill = Read-Host
+    if ($drill.ToLower() -ne 'y') { return }
+
+    foreach ($cat in $script:CleanCatOrder) {
+        if (-not $script:CleanCategories[$cat]) { continue }
+
+        $avail = @()
+        foreach ($target in $script:CleanCatTargets[$cat]) {
+            if (Test-CleanTargetAvailable $target) {
+                $avail += $target
+            }
+        }
+        if ($avail.Count -eq 0) { continue }
+
+        Write-Host ""
+        Write-ColorLine "  -- $($script:CleanCatNames[$cat]) --" White
+
+        while ($true) {
+            for ($i = 0; $i -lt $avail.Count; $i++) {
+                $t = $avail[$i]
+                $num = $i + 1
+                $mark = " "
+                if ($script:CleanTargets.ContainsKey($t) -and $script:CleanTargets[$t]) { $mark = "*" }
+                Write-Host "    " -NoNewline
+                Write-Color "[$num]" Cyan
+                Write-Host " [$mark] $($script:CleanTargetNames[$t])"
+            }
+            Write-Host ""
+            Write-Host "    Toggle (1-$($avail.Count)) or Enter to keep: " -NoNewline -ForegroundColor White
+            $input = Read-Host
+
+            if ([string]::IsNullOrEmpty($input)) { break }
+
+            $num = 0
+            if ([int]::TryParse($input, [ref]$num) -and $num -ge 1 -and $num -le $avail.Count) {
+                $t = $avail[$num - 1]
+                if ($script:CleanTargets.ContainsKey($t) -and $script:CleanTargets[$t]) {
+                    $script:CleanTargets[$t] = $false
+                } else {
+                    $script:CleanTargets[$t] = $true
+                }
+            } else {
+                Write-ColorLine "    Invalid input." Red
+            }
+            Write-Host ""
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — BYTE FORMATTING
+# ═══════════════════════════════════════════════════════════════════
+function Format-CleanBytes {
+    param([long]$Bytes)
+    if ($Bytes -ge 1GB) {
+        return "{0:N1} GB" -f ($Bytes / 1GB)
+    } elseif ($Bytes -ge 1MB) {
+        return "{0:N0} MB" -f ($Bytes / 1MB)
+    } elseif ($Bytes -ge 1KB) {
+        return "{0:N0} KB" -f ($Bytes / 1KB)
+    } else {
+        return "$Bytes B"
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — SCAN HELPERS
+# ═══════════════════════════════════════════════════════════════════
+function Invoke-ScanDirectory {
+    param([string]$Path)
+    $script:ScanFileCount = 0
+    $script:ScanByteCount = 0
+    if (Test-Path $Path) {
+        try {
+            $items = Get-ChildItem -Path $Path -Recurse -File -Force -ErrorAction SilentlyContinue |
+                Where-Object { -not $_.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) }
+            if ($items) {
+                $measure = $items | Measure-Object -Property Length -Sum
+                $script:ScanFileCount = [int]$measure.Count
+                $script:ScanByteCount = [long]$measure.Sum
+            }
+        } catch {
+            # Permission errors, etc.
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PER-TARGET SCAN FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+function Invoke-ScanSystemCache {
+    Invoke-ScanDirectory "C:\Windows\Temp"
+    $script:CleanScanFiles['system-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['system-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanSystemLogs {
+    # Event logs cannot be easily measured by file size; report as 0
+    $script:CleanScanFiles['system-logs'] = 0
+    $script:CleanScanBytes['system-logs'] = 0
+}
+
+function Invoke-ScanDiagnosticReports {
+    Invoke-ScanDirectory "C:\ProgramData\Microsoft\Windows\WER"
+    $script:CleanScanFiles['diagnostic-reports'] = $script:ScanFileCount
+    $script:CleanScanBytes['diagnostic-reports'] = $script:ScanByteCount
+}
+
+function Invoke-ScanDnsCache {
+    $script:CleanScanFiles['dns-cache'] = 0
+    $script:CleanScanBytes['dns-cache'] = 0
+}
+
+function Invoke-ScanUserCache {
+    Invoke-ScanDirectory "$env:LOCALAPPDATA\Temp"
+    $script:CleanScanFiles['user-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['user-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanUserLogs {
+    $totalF = 0; $totalB = 0
+    foreach ($d in @("$env:LOCALAPPDATA\CrashDumps", "$env:LOCALAPPDATA\Microsoft\Windows\WER")) {
+        if (Test-Path $d) {
+            Invoke-ScanDirectory $d
+            $totalF += $script:ScanFileCount
+            $totalB += $script:ScanByteCount
+        }
+    }
+    $script:CleanScanFiles['user-logs'] = $totalF
+    $script:CleanScanBytes['user-logs'] = $totalB
+}
+
+function Invoke-ScanChrome {
+    Invoke-ScanDirectory "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache"
+    $script:CleanScanFiles['chrome'] = $script:ScanFileCount
+    $script:CleanScanBytes['chrome'] = $script:ScanByteCount
+}
+
+function Invoke-ScanFirefox {
+    Invoke-ScanDirectory "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
+    $script:CleanScanFiles['firefox'] = $script:ScanFileCount
+    $script:CleanScanBytes['firefox'] = $script:ScanByteCount
+}
+
+function Invoke-ScanEdge {
+    Invoke-ScanDirectory "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache"
+    $script:CleanScanFiles['edge'] = $script:ScanFileCount
+    $script:CleanScanBytes['edge'] = $script:ScanByteCount
+}
+
+function Invoke-ScanRecentItems {
+    Invoke-ScanDirectory "$env:APPDATA\Microsoft\Windows\Recent"
+    $script:CleanScanFiles['recent-items'] = $script:ScanFileCount
+    $script:CleanScanBytes['recent-items'] = $script:ScanByteCount
+}
+
+function Invoke-ScanClipboard {
+    $script:CleanScanFiles['clipboard'] = 0
+    $script:CleanScanBytes['clipboard'] = 0
+}
+
+function Invoke-ScanThumbnails {
+    $totalF = 0; $totalB = 0
+    $thumbDir = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
+    if (Test-Path $thumbDir) {
+        $thumbFiles = Get-ChildItem -Path $thumbDir -Filter "thumbcache_*" -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { -not $_.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) }
+        if ($thumbFiles) {
+            $measure = $thumbFiles | Measure-Object -Property Length -Sum
+            $totalF = [int]$measure.Count
+            $totalB = [long]$measure.Sum
+        }
+    }
+    $script:CleanScanFiles['thumbnails'] = $totalF
+    $script:CleanScanBytes['thumbnails'] = $totalB
+}
+
+function Invoke-ScanNpmCache {
+    $script:ScanFileCount = 0; $script:ScanByteCount = 0
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        try {
+            $cacheDir = (npm config get cache 2>$null)
+            if ($cacheDir -and (Test-Path $cacheDir)) {
+                Invoke-ScanDirectory $cacheDir
+            }
+        } catch {}
+    }
+    $script:CleanScanFiles['npm-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['npm-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanYarnCache {
+    $script:ScanFileCount = 0; $script:ScanByteCount = 0
+    if (Get-Command yarn -ErrorAction SilentlyContinue) {
+        try {
+            $cacheDir = (yarn cache dir 2>$null)
+            if ($cacheDir -and (Test-Path $cacheDir)) {
+                Invoke-ScanDirectory $cacheDir
+            }
+        } catch {}
+    }
+    $script:CleanScanFiles['yarn-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['yarn-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanPipCache {
+    $script:ScanFileCount = 0; $script:ScanByteCount = 0
+    $pipCmd = $null
+    if (Get-Command pip3 -ErrorAction SilentlyContinue) { $pipCmd = 'pip3' }
+    elseif (Get-Command pip -ErrorAction SilentlyContinue) { $pipCmd = 'pip' }
+    if ($pipCmd) {
+        try {
+            $cacheDir = (& $pipCmd cache dir 2>$null)
+            if ($cacheDir -and (Test-Path $cacheDir)) {
+                Invoke-ScanDirectory $cacheDir
+            }
+        } catch {}
+    }
+    $script:CleanScanFiles['pip-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['pip-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanCargoCache {
+    Invoke-ScanDirectory "$env:USERPROFILE\.cargo\registry\cache"
+    $script:CleanScanFiles['cargo-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['cargo-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanGoCache {
+    $script:ScanFileCount = 0; $script:ScanByteCount = 0
+    if (Get-Command go -ErrorAction SilentlyContinue) {
+        try {
+            $cacheDir = (go env GOCACHE 2>$null)
+            if ($cacheDir -and (Test-Path $cacheDir)) {
+                Invoke-ScanDirectory $cacheDir
+            }
+        } catch {}
+    }
+    $script:CleanScanFiles['go-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['go-cache'] = $script:ScanByteCount
+}
+
+function Invoke-ScanDockerCruft {
+    $script:CleanScanFiles['docker-cruft'] = 0
+    $script:CleanScanBytes['docker-cruft'] = 0
+}
+
+function Invoke-ScanIdeCaches {
+    $totalF = 0; $totalB = 0
+    foreach ($d in @("$env:APPDATA\Code\Cache",
+                     "$env:LOCALAPPDATA\JetBrains")) {
+        if (Test-Path $d) {
+            Invoke-ScanDirectory $d
+            $totalF += $script:ScanFileCount
+            $totalB += $script:ScanByteCount
+        }
+    }
+    $script:CleanScanFiles['ide-caches'] = $totalF
+    $script:CleanScanBytes['ide-caches'] = $totalB
+}
+
+function Invoke-ScanRecycleBin {
+    # Recycle Bin size is not easily measured via filesystem
+    $script:CleanScanFiles['recycle-bin'] = 0
+    $script:CleanScanBytes['recycle-bin'] = 0
+}
+
+function Invoke-ScanOldDownloads {
+    $script:ScanFileCount = 0; $script:ScanByteCount = 0
+    $dlPath = "$env:USERPROFILE\Downloads"
+    if (Test-Path $dlPath) {
+        $cutoff = (Get-Date).AddDays(-30)
+        $oldFiles = Get-ChildItem -Path $dlPath -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -lt $cutoff -and -not $_.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) }
+        if ($oldFiles) {
+            $measure = $oldFiles | Measure-Object -Property Length -Sum
+            $script:ScanFileCount = [int]$measure.Count
+            $script:ScanByteCount = [long]$measure.Sum
+        }
+    }
+    $script:CleanScanFiles['old-downloads'] = $script:ScanFileCount
+    $script:CleanScanBytes['old-downloads'] = $script:ScanByteCount
+}
+
+function Invoke-ScanOutlookCache {
+    Invoke-ScanDirectory "$env:LOCALAPPDATA\Microsoft\Outlook\RoamCache"
+    $script:CleanScanFiles['outlook-cache'] = $script:ScanFileCount
+    $script:CleanScanBytes['outlook-cache'] = $script:ScanByteCount
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — SCAN DISPATCHER
+# ═══════════════════════════════════════════════════════════════════
+function Invoke-ScanTarget {
+    param([string]$Target)
+    $funcMap = @{
+        'system-cache'       = { Invoke-ScanSystemCache }
+        'system-logs'        = { Invoke-ScanSystemLogs }
+        'diagnostic-reports' = { Invoke-ScanDiagnosticReports }
+        'dns-cache'          = { Invoke-ScanDnsCache }
+        'user-cache'         = { Invoke-ScanUserCache }
+        'user-logs'          = { Invoke-ScanUserLogs }
+        'chrome'             = { Invoke-ScanChrome }
+        'firefox'            = { Invoke-ScanFirefox }
+        'edge'               = { Invoke-ScanEdge }
+        'recent-items'       = { Invoke-ScanRecentItems }
+        'clipboard'          = { Invoke-ScanClipboard }
+        'thumbnails'         = { Invoke-ScanThumbnails }
+        'npm-cache'          = { Invoke-ScanNpmCache }
+        'yarn-cache'         = { Invoke-ScanYarnCache }
+        'pip-cache'          = { Invoke-ScanPipCache }
+        'cargo-cache'        = { Invoke-ScanCargoCache }
+        'go-cache'           = { Invoke-ScanGoCache }
+        'docker-cruft'       = { Invoke-ScanDockerCruft }
+        'ide-caches'         = { Invoke-ScanIdeCaches }
+        'recycle-bin'        = { Invoke-ScanRecycleBin }
+        'old-downloads'      = { Invoke-ScanOldDownloads }
+        'outlook-cache'      = { Invoke-ScanOutlookCache }
+    }
+    if ($funcMap.ContainsKey($Target)) {
+        & $funcMap[$Target]
+    } else {
+        $script:CleanScanFiles[$Target] = 0
+        $script:CleanScanBytes[$Target] = 0
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PREVIEW TABLE
+# ═══════════════════════════════════════════════════════════════════
+function Show-CleanPreview {
+    Print-Section "Scanning..."
+
+    $orderedTargets = @()
+    foreach ($cat in $script:CleanCatOrder) {
+        foreach ($target in $script:CleanCatTargets[$cat]) {
+            if ($script:CleanTargets.ContainsKey($target) -and $script:CleanTargets[$target]) {
+                $orderedTargets += $target
+            }
+        }
+    }
+
+    foreach ($target in $orderedTargets) {
+        Write-Host "  " -NoNewline
+        Write-Color ([char]0x27F3).ToString() Yellow
+        Write-Host " Scanning $($script:CleanTargetNames[$target])..." -NoNewline
+        Invoke-ScanTarget $target
+        Write-Host "`r" -NoNewline
+        Write-Host ("  " + (" " * 60)) -NoNewline
+        Write-Host "`r" -NoNewline
+    }
+
+    $totalFiles = 0; $totalBytes = [long]0
+    Write-Host ""
+    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-ColorLine "  |                   CLEANING PREVIEW                        |" White
+    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  Target","Files","Size","Status") -ForegroundColor White
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
+
+    foreach ($target in $orderedTargets) {
+        $files = if ($script:CleanScanFiles.ContainsKey($target)) { $script:CleanScanFiles[$target] } else { 0 }
+        $bytes = if ($script:CleanScanBytes.ContainsKey($target)) { [long]$script:CleanScanBytes[$target] } else { [long]0 }
+        $status = "Ready"
+        $sizeStr = [string]::Empty
+
+        if ($bytes -gt 0) {
+            $sizeStr = Format-CleanBytes $bytes
+        } elseif ($files -gt 0) {
+            $sizeStr = [char]0x2014 # em-dash
+        } else {
+            switch ($target) {
+                { $_ -in @('dns-cache','clipboard') } { $sizeStr = [char]0x2014; $status = "Ready" }
+                default { $status = "Empty"; $sizeStr = [char]0x2014 }
+            }
+        }
+
+        $fileStr = if ($files -eq 0) { [string]([char]0x2014) } else { "$files" }
+
+        $color = "White"
+        if ($status -eq "Empty") { $color = "DarkGray" }
+
+        Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  $($script:CleanTargetNames[$target])",$fileStr,$sizeStr,$status) -ForegroundColor $color
+
+        $totalFiles += $files
+        $totalBytes += $bytes
+    }
+
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
+    Write-Host ("  {0,-34} {1,8} {2,10}" -f "  TOTAL","$totalFiles","$(Format-CleanBytes $totalBytes)") -ForegroundColor White
+    Write-ColorLine "  +----------------------------------------------------------+" White
+
+    $script:CleanTotalScanFiles = $totalFiles
+    $script:CleanTotalScanBytes = $totalBytes
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — CLEAN LOG ENTRY
+# ═══════════════════════════════════════════════════════════════════
+function Write-CleanLogEntry {
+    param([string]$Action, [string]$Message)
+    $entry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$Action] $Message"
+    $script:CleanLogEntries += $entry
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — SAFE DIRECTORY REMOVAL
+# ═══════════════════════════════════════════════════════════════════
+function Remove-DirectoryContents {
+    param([string]$Path)
+    $script:SafeRmFiles = 0
+    $script:SafeRmBytes = [long]0
+
+    if (-not (Test-Path $Path)) { return }
+
+    # Resolve to physical path (no symlink following)
+    try {
+        $realPath = (Resolve-Path $Path -ErrorAction Stop).Path
+    } catch {
+        return
+    }
+
+    $now = Get-Date
+    $files = Get-ChildItem -Path $realPath -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { -not $_.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) }
+
+    if (-not $files) { return }
+
+    foreach ($file in $files) {
+        # Skip files modified less than 60 seconds ago
+        if (($now - $file.LastWriteTime).TotalSeconds -lt 60) {
+            Write-CleanLogEntry "SKIP" "$($file.FullName) (modified < 60s ago)"
+            continue
+        }
+
+        $fsize = $file.Length
+        try {
+            Remove-Item -Path $file.FullName -Force -ErrorAction Stop
+            $script:SafeRmBytes += $fsize
+            $script:SafeRmFiles++
+            Write-CleanLogEntry "CLEAN" "Removed $($file.FullName) ($(Format-CleanBytes $fsize))"
+        } catch {
+            Write-CleanLogEntry "FAIL" "$($file.FullName) (permission denied)"
+        }
+    }
+
+    # Remove empty directories
+    Get-ChildItem -Path $realPath -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+        Sort-Object { $_.FullName.Length } -Descending |
+        ForEach-Object {
+            if (@(Get-ChildItem -Path $_.FullName -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+                Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — BROWSER RUNNING CHECK
+# ═══════════════════════════════════════════════════════════════════
+function Test-BrowserRunning {
+    param([string]$ProcessName)
+    return @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue).Count -gt 0
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — PER-TARGET CLEAN FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+function Invoke-CleanSystemCache {
+    Remove-DirectoryContents "C:\Windows\Temp"
+    $script:CleanResultFiles['system-cache'] = $script:SafeRmFiles
+    $script:CleanResultBytes['system-cache'] = $script:SafeRmBytes
+    $script:CleanResultStatus['system-cache'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanSystemLogs {
+    try {
+        wevtutil cl System 2>$null
+        wevtutil cl Application 2>$null
+        Write-CleanLogEntry "CLEAN" "Cleared System and Application event logs"
+    } catch {
+        Write-CleanLogEntry "FAIL" "Could not clear event logs: $_"
+    }
+    $script:CleanResultFiles['system-logs'] = 0
+    $script:CleanResultBytes['system-logs'] = 0
+    $script:CleanResultStatus['system-logs'] = "pass"
+}
+
+function Invoke-CleanDiagnosticReports {
+    Remove-DirectoryContents "C:\ProgramData\Microsoft\Windows\WER"
+    $script:CleanResultFiles['diagnostic-reports'] = $script:SafeRmFiles
+    $script:CleanResultBytes['diagnostic-reports'] = $script:SafeRmBytes
+    $script:CleanResultStatus['diagnostic-reports'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanDnsCache {
+    try {
+        ipconfig /flushdns 2>$null | Out-Null
+        Write-CleanLogEntry "CLEAN" "Flushed DNS cache (ipconfig /flushdns)"
+    } catch {
+        Write-CleanLogEntry "FAIL" "Could not flush DNS cache: $_"
+    }
+    $script:CleanResultFiles['dns-cache'] = 0
+    $script:CleanResultBytes['dns-cache'] = 0
+    $script:CleanResultStatus['dns-cache'] = "pass"
+}
+
+function Invoke-CleanUserCache {
+    Remove-DirectoryContents "$env:LOCALAPPDATA\Temp"
+    $script:CleanResultFiles['user-cache'] = $script:SafeRmFiles
+    $script:CleanResultBytes['user-cache'] = $script:SafeRmBytes
+    $script:CleanResultStatus['user-cache'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanUserLogs {
+    $totalF = 0; $totalB = [long]0
+    foreach ($d in @("$env:LOCALAPPDATA\CrashDumps", "$env:LOCALAPPDATA\Microsoft\Windows\WER")) {
+        if (Test-Path $d) {
+            Remove-DirectoryContents $d
+            $totalF += $script:SafeRmFiles
+            $totalB += $script:SafeRmBytes
+        }
+    }
+    $script:CleanResultFiles['user-logs'] = $totalF
+    $script:CleanResultBytes['user-logs'] = $totalB
+    $script:CleanResultStatus['user-logs'] = if ($totalF -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanChrome {
+    if (Test-BrowserRunning "chrome") {
+        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Yellow; Write-Host "  Chrome is running -- close it first to clean"
+        Write-CleanLogEntry "SKIP" "Chrome (browser running)"
+        $script:CleanResultFiles['chrome'] = 0; $script:CleanResultBytes['chrome'] = 0; $script:CleanResultStatus['chrome'] = "fail"
+        return
+    }
+    Remove-DirectoryContents "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache"
+    $script:CleanResultFiles['chrome'] = $script:SafeRmFiles
+    $script:CleanResultBytes['chrome'] = $script:SafeRmBytes
+    $script:CleanResultStatus['chrome'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanFirefox {
+    if (Test-BrowserRunning "firefox") {
+        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Yellow; Write-Host "  Firefox is running -- close it first to clean"
+        Write-CleanLogEntry "SKIP" "Firefox (browser running)"
+        $script:CleanResultFiles['firefox'] = 0; $script:CleanResultBytes['firefox'] = 0; $script:CleanResultStatus['firefox'] = "fail"
+        return
+    }
+    # Clean cache subdirectories within all profiles
+    $profilesDir = "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles"
+    $totalF = 0; $totalB = [long]0
+    if (Test-Path $profilesDir) {
+        Get-ChildItem -Path $profilesDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $cacheDir = Join-Path $_.FullName "cache2"
+            if (Test-Path $cacheDir) {
+                Remove-DirectoryContents $cacheDir
+                $totalF += $script:SafeRmFiles
+                $totalB += $script:SafeRmBytes
+            }
+        }
+    }
+    $script:CleanResultFiles['firefox'] = $totalF
+    $script:CleanResultBytes['firefox'] = $totalB
+    $script:CleanResultStatus['firefox'] = if ($totalF -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanEdge {
+    if (Test-BrowserRunning "msedge") {
+        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Yellow; Write-Host "  Edge is running -- close it first to clean"
+        Write-CleanLogEntry "SKIP" "Edge (browser running)"
+        $script:CleanResultFiles['edge'] = 0; $script:CleanResultBytes['edge'] = 0; $script:CleanResultStatus['edge'] = "fail"
+        return
+    }
+    Remove-DirectoryContents "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache"
+    $script:CleanResultFiles['edge'] = $script:SafeRmFiles
+    $script:CleanResultBytes['edge'] = $script:SafeRmBytes
+    $script:CleanResultStatus['edge'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanRecentItems {
+    Remove-DirectoryContents "$env:APPDATA\Microsoft\Windows\Recent"
+    $script:CleanResultFiles['recent-items'] = $script:SafeRmFiles
+    $script:CleanResultBytes['recent-items'] = $script:SafeRmBytes
+    $script:CleanResultStatus['recent-items'] = "pass"
+}
+
+function Invoke-CleanClipboard {
+    try {
+        Set-Clipboard -Value $null
+        Write-CleanLogEntry "CLEAN" "Cleared clipboard"
+    } catch {
+        Write-CleanLogEntry "FAIL" "Could not clear clipboard: $_"
+    }
+    $script:CleanResultFiles['clipboard'] = 0
+    $script:CleanResultBytes['clipboard'] = 0
+    $script:CleanResultStatus['clipboard'] = "pass"
+}
+
+function Invoke-CleanThumbnails {
+    $thumbDir = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
+    $totalF = 0; $totalB = [long]0
+    if (Test-Path $thumbDir) {
+        $thumbFiles = Get-ChildItem -Path $thumbDir -Filter "thumbcache_*" -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { -not $_.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) }
+        if ($thumbFiles) {
+            foreach ($file in $thumbFiles) {
+                $fsize = $file.Length
+                try {
+                    Remove-Item -Path $file.FullName -Force -ErrorAction Stop
+                    $totalF++
+                    $totalB += $fsize
+                    Write-CleanLogEntry "CLEAN" "Removed $($file.FullName) ($(Format-CleanBytes $fsize))"
+                } catch {
+                    Write-CleanLogEntry "FAIL" "$($file.FullName) (in use or permission denied)"
+                }
+            }
+        }
+    }
+    $script:CleanResultFiles['thumbnails'] = $totalF
+    $script:CleanResultBytes['thumbnails'] = $totalB
+    $script:CleanResultStatus['thumbnails'] = if ($totalF -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanNpmCache {
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        try {
+            npm cache clean --force 2>$null | Out-Null
+            Write-CleanLogEntry "CLEAN" "Ran npm cache clean --force"
+        } catch {}
+    }
+    $script:CleanResultFiles['npm-cache'] = 0
+    $script:CleanResultBytes['npm-cache'] = 0
+    $script:CleanResultStatus['npm-cache'] = "pass"
+}
+
+function Invoke-CleanYarnCache {
+    if (Get-Command yarn -ErrorAction SilentlyContinue) {
+        try {
+            yarn cache clean 2>$null | Out-Null
+            Write-CleanLogEntry "CLEAN" "Ran yarn cache clean"
+        } catch {}
+    }
+    $script:CleanResultFiles['yarn-cache'] = 0
+    $script:CleanResultBytes['yarn-cache'] = 0
+    $script:CleanResultStatus['yarn-cache'] = "pass"
+}
+
+function Invoke-CleanPipCache {
+    $pipCmd = $null
+    if (Get-Command pip3 -ErrorAction SilentlyContinue) { $pipCmd = 'pip3' }
+    elseif (Get-Command pip -ErrorAction SilentlyContinue) { $pipCmd = 'pip' }
+    if ($pipCmd) {
+        try {
+            & $pipCmd cache purge 2>$null | Out-Null
+            Write-CleanLogEntry "CLEAN" "Ran $pipCmd cache purge"
+        } catch {}
+    }
+    $script:CleanResultFiles['pip-cache'] = 0
+    $script:CleanResultBytes['pip-cache'] = 0
+    $script:CleanResultStatus['pip-cache'] = "pass"
+}
+
+function Invoke-CleanCargoCache {
+    Remove-DirectoryContents "$env:USERPROFILE\.cargo\registry\cache"
+    $script:CleanResultFiles['cargo-cache'] = $script:SafeRmFiles
+    $script:CleanResultBytes['cargo-cache'] = $script:SafeRmBytes
+    $script:CleanResultStatus['cargo-cache'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanGoCache {
+    if (Get-Command go -ErrorAction SilentlyContinue) {
+        try {
+            go clean -cache 2>$null | Out-Null
+            Write-CleanLogEntry "CLEAN" "Ran go clean -cache"
+        } catch {}
+    }
+    $script:CleanResultFiles['go-cache'] = 0
+    $script:CleanResultBytes['go-cache'] = 0
+    $script:CleanResultStatus['go-cache'] = "pass"
+}
+
+function Invoke-CleanDockerCruft {
+    if (Get-Command docker -ErrorAction SilentlyContinue) {
+        try {
+            docker system prune -f 2>$null | Out-Null
+            Write-CleanLogEntry "CLEAN" "Ran docker system prune -f"
+        } catch {}
+    }
+    $script:CleanResultFiles['docker-cruft'] = 0
+    $script:CleanResultBytes['docker-cruft'] = 0
+    $script:CleanResultStatus['docker-cruft'] = "pass"
+}
+
+function Invoke-CleanIdeCaches {
+    $totalF = 0; $totalB = [long]0
+    foreach ($d in @("$env:APPDATA\Code\Cache",
+                     "$env:LOCALAPPDATA\JetBrains")) {
+        if (Test-Path $d) {
+            Remove-DirectoryContents $d
+            $totalF += $script:SafeRmFiles
+            $totalB += $script:SafeRmBytes
+        }
+    }
+    $script:CleanResultFiles['ide-caches'] = $totalF
+    $script:CleanResultBytes['ide-caches'] = $totalB
+    $script:CleanResultStatus['ide-caches'] = if ($totalF -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanRecycleBin {
+    try {
+        Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+        Write-CleanLogEntry "CLEAN" "Cleared Recycle Bin"
+    } catch {
+        Write-CleanLogEntry "FAIL" "Could not clear Recycle Bin: $_"
+    }
+    $script:CleanResultFiles['recycle-bin'] = 0
+    $script:CleanResultBytes['recycle-bin'] = 0
+    $script:CleanResultStatus['recycle-bin'] = "pass"
+}
+
+function Invoke-CleanOldDownloads {
+    $totalF = 0; $totalB = [long]0
+    $dlPath = "$env:USERPROFILE\Downloads"
+    if (Test-Path $dlPath) {
+        $cutoff = (Get-Date).AddDays(-30)
+        $oldFiles = Get-ChildItem -Path $dlPath -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -lt $cutoff -and -not $_.Attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint) }
+        if ($oldFiles) {
+            foreach ($file in $oldFiles) {
+                $fsize = $file.Length
+                try {
+                    Remove-Item -Path $file.FullName -Force -ErrorAction Stop
+                    $totalF++
+                    $totalB += $fsize
+                    Write-CleanLogEntry "CLEAN" "Removed $($file.FullName) ($(Format-CleanBytes $fsize))"
+                } catch {
+                    Write-CleanLogEntry "FAIL" "$($file.FullName) (permission denied)"
+                }
+            }
+        }
+    }
+    $script:CleanResultFiles['old-downloads'] = $totalF
+    $script:CleanResultBytes['old-downloads'] = $totalB
+    $script:CleanResultStatus['old-downloads'] = if ($totalF -gt 0) { "pass" } else { "skip" }
+}
+
+function Invoke-CleanOutlookCache {
+    Remove-DirectoryContents "$env:LOCALAPPDATA\Microsoft\Outlook\RoamCache"
+    $script:CleanResultFiles['outlook-cache'] = $script:SafeRmFiles
+    $script:CleanResultBytes['outlook-cache'] = $script:SafeRmBytes
+    $script:CleanResultStatus['outlook-cache'] = if ($script:SafeRmFiles -gt 0) { "pass" } else { "skip" }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — EXECUTION ORCHESTRATOR
+# ═══════════════════════════════════════════════════════════════════
+function Invoke-CleanExecute {
+    Print-Section "Cleaning ($(Get-Date -Format 'HH:mm:ss'))"
+
+    $orderedTargets = @()
+    foreach ($cat in $script:CleanCatOrder) {
+        foreach ($target in $script:CleanCatTargets[$cat]) {
+            if ($script:CleanTargets.ContainsKey($target) -and $script:CleanTargets[$target]) {
+                $orderedTargets += $target
+            }
+        }
+    }
+
+    $total = $orderedTargets.Count
+    $current = 0
+
+    $cleanFuncMap = @{
+        'system-cache'       = { Invoke-CleanSystemCache }
+        'system-logs'        = { Invoke-CleanSystemLogs }
+        'diagnostic-reports' = { Invoke-CleanDiagnosticReports }
+        'dns-cache'          = { Invoke-CleanDnsCache }
+        'user-cache'         = { Invoke-CleanUserCache }
+        'user-logs'          = { Invoke-CleanUserLogs }
+        'chrome'             = { Invoke-CleanChrome }
+        'firefox'            = { Invoke-CleanFirefox }
+        'edge'               = { Invoke-CleanEdge }
+        'recent-items'       = { Invoke-CleanRecentItems }
+        'clipboard'          = { Invoke-CleanClipboard }
+        'thumbnails'         = { Invoke-CleanThumbnails }
+        'npm-cache'          = { Invoke-CleanNpmCache }
+        'yarn-cache'         = { Invoke-CleanYarnCache }
+        'pip-cache'          = { Invoke-CleanPipCache }
+        'cargo-cache'        = { Invoke-CleanCargoCache }
+        'go-cache'           = { Invoke-CleanGoCache }
+        'docker-cruft'       = { Invoke-CleanDockerCruft }
+        'ide-caches'         = { Invoke-CleanIdeCaches }
+        'recycle-bin'        = { Invoke-CleanRecycleBin }
+        'old-downloads'      = { Invoke-CleanOldDownloads }
+        'outlook-cache'      = { Invoke-CleanOutlookCache }
+    }
+
+    foreach ($target in $orderedTargets) {
+        $current++
+        Write-Host "  " -NoNewline
+        Write-Color ([char]0x27F3).ToString() Yellow
+        Write-Host " [$current/$total] $($script:CleanTargetNames[$target])..." -NoNewline
+
+        if ($cleanFuncMap.ContainsKey($target)) {
+            & $cleanFuncMap[$target]
+        } else {
+            $script:CleanResultStatus[$target] = "fail"
+            Write-CleanLogEntry "FAIL" "$target -- no clean function"
+        }
+
+        # Clear progress line
+        Write-Host "`r" -NoNewline
+        Write-Host ("  " + (" " * 70)) -NoNewline
+        Write-Host "`r" -NoNewline
+
+        $status = if ($script:CleanResultStatus.ContainsKey($target)) { $script:CleanResultStatus[$target] } else { "skip" }
+        $freed = if ($script:CleanResultBytes.ContainsKey($target)) { [long]$script:CleanResultBytes[$target] } else { [long]0 }
+        $freedStr = ""
+        if ($freed -gt 0) { $freedStr = " ($(Format-CleanBytes $freed))" }
+
+        switch ($status) {
+            "pass" {
+                Write-Host "  " -NoNewline; Write-Color ([char]0x2713).ToString() Green
+                Write-Host " [$current/$total] $($script:CleanTargetNames[$target])$freedStr"
+            }
+            "skip" {
+                Write-Host "  " -NoNewline; Write-Color ([char]0x25CB).ToString() Green
+                Write-Host " [$current/$total] $($script:CleanTargetNames[$target]) " -NoNewline
+                Write-ColorLine "(nothing to clean)" DarkGray
+            }
+            "fail" {
+                Write-Host "  " -NoNewline; Write-Color ([char]0x2717).ToString() Red
+                Write-Host " [$current/$total] $($script:CleanTargetNames[$target]) " -NoNewline
+                Write-ColorLine "(failed)" Red
+            }
+            "partial" {
+                Write-Host "  " -NoNewline; Write-Color ([char]0x25D0).ToString() Yellow
+                Write-Host " [$current/$total] $($script:CleanTargetNames[$target])$freedStr " -NoNewline
+                Write-ColorLine "(partial)" Yellow
+            }
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — CLEANLINESS SCORE
+# ═══════════════════════════════════════════════════════════════════
+function Get-CleanScore {
+    $earned = 0; $possible = 0
+
+    foreach ($target in $script:CleanTargets.Keys) {
+        if (-not $script:CleanTargets[$target]) { continue }
+        $sev = if ($script:CleanSeverity.ContainsKey($target)) { $script:CleanSeverity[$target] } else { "LOW" }
+        $weight = $script:SeverityWeight[$sev]
+        $possible += $weight
+
+        $status = if ($script:CleanResultStatus.ContainsKey($target)) { $script:CleanResultStatus[$target] } else { "skip" }
+        switch ($status) {
+            "pass"    { $earned += $weight }
+            "skip"    { $earned += $weight }
+            "partial" { $earned += [int]($weight / 2) }
+            "fail"    { }
+        }
+    }
+
+    $pct = 0
+    if ($possible -gt 0) { $pct = [int](($earned * 100) / $possible) }
+    return @{ Earned = $earned; Possible = $possible; Percent = $pct }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — SUMMARY TABLE
+# ═══════════════════════════════════════════════════════════════════
+function Show-CleanSummary {
+    $orderedTargets = @()
+    foreach ($cat in $script:CleanCatOrder) {
+        foreach ($target in $script:CleanCatTargets[$cat]) {
+            if ($script:CleanTargets.ContainsKey($target) -and $script:CleanTargets[$target]) {
+                $orderedTargets += $target
+            }
+        }
+    }
+
+    $totalFiles = 0; $totalBytes = [long]0
+
+    Write-Host ""
+    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-ColorLine "  |                  CLEANING SUMMARY                         |" White
+    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  Target","Removed","Freed","Status") -ForegroundColor White
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
+
+    foreach ($target in $orderedTargets) {
+        $files = if ($script:CleanResultFiles.ContainsKey($target)) { $script:CleanResultFiles[$target] } else { 0 }
+        $bytes = if ($script:CleanResultBytes.ContainsKey($target)) { [long]$script:CleanResultBytes[$target] } else { [long]0 }
+        $status = if ($script:CleanResultStatus.ContainsKey($target)) { $script:CleanResultStatus[$target] } else { "skip" }
+
+        $fileStr = if ($files -eq 0) { [string]([char]0x2014) } else { "$files" }
+        $sizeStr = if ($bytes -gt 0) { Format-CleanBytes $bytes } else { [string]([char]0x2014) }
+
+        $statusStr = ""; $color = "White"
+        switch ($status) {
+            "pass"    { $statusStr = "PASS";    $color = "Green" }
+            "skip"    { $statusStr = "SKIP";    $color = "DarkGray" }
+            "fail"    { $statusStr = "FAIL";    $color = "Red" }
+            "partial" { $statusStr = "PARTIAL"; $color = "Yellow" }
+        }
+
+        Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  $($script:CleanTargetNames[$target])",$fileStr,$sizeStr,$statusStr) -ForegroundColor $color
+
+        $totalFiles += $files
+        $totalBytes += $bytes
+    }
+
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
+    Write-Host ("  {0,-34} {1,8} {2,10}" -f "  TOTAL","$totalFiles","$(Format-CleanBytes $totalBytes)") -ForegroundColor White
+    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-Host ""
+
+    # Score bar
+    $scoreResult = Get-CleanScore
+    $pct = $scoreResult.Percent
+
+    $color = "Red"
+    if ($pct -ge 80) { $color = "Green" }
+    elseif ($pct -ge 50) { $color = "Yellow" }
+
+    $width = 20
+    $filled = [int](($pct * $width) / 100)
+    $empty = $width - $filled
+    $barFull = [string]::new([char]0x2588, $filled)
+    $barEmpty = [string]::new([char]0x2591, $empty)
+
+    Write-Host "  Cleanliness Score: " -NoNewline -ForegroundColor White
+    Write-Color "$pct/100" $color
+    Write-Host " [" -NoNewline
+    Write-Color $barFull $color
+    Write-Color $barEmpty $color
+    Write-Host "]"
+    Write-Host ""
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — WRITE LOG FILE
+# ═══════════════════════════════════════════════════════════════════
+function Write-CleanLog {
+    New-Item -ItemType Directory -Path (Split-Path $script:CleanLogFile) -Force | Out-Null
+
+    $logContent = @()
+    if (Test-Path $script:CleanLogFile) {
+        $logContent += ""
+        $logContent += [string]::new([char]0x2500, 40)
+        $logContent += ""
+    }
+    $logContent += "# System Cleaner Log -- $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $logContent += "OS: Windows | Date: $($script:DATE)"
+    $logContent += ""
+    foreach ($entry in $script:CleanLogEntries) {
+        $logContent += $entry
+    }
+
+    $logContent | Out-File -FilePath $script:CleanLogFile -Encoding UTF8 -Append
+    Write-ColorLine "  Log: $($script:CleanLogFile)" DarkGray
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# SYSTEM CLEANER — MAIN ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════
+function Invoke-Clean {
+    Write-Host ""
+    Write-ColorLine "+-------------------------------------------------+" Cyan
+    Write-Host "|" -ForegroundColor Cyan -NoNewline
+    Write-Host "          SYSTEM CLEANER v$($script:VERSION)                 " -ForegroundColor White -NoNewline
+    Write-ColorLine "|" Cyan
+    Write-Host "|" -ForegroundColor Cyan -NoNewline
+    Write-Host "          Windows                                  " -NoNewline
+    Write-ColorLine "|" Cyan
+    Write-ColorLine "+-------------------------------------------------+" Cyan
+
+    Show-CleanPicker
+    Show-CleanDrilldown
+    Show-CleanPreview
+
+    # Dry-run: show preview and exit
+    if ($DryRun) {
+        Write-Host ""
+        Write-Host "  " -NoNewline; Write-Color "[DRY RUN]" Cyan; Write-Host " Preview only -- no files deleted."
+        return
+    }
+
+    # Confirmation
+    if (-not $Force) {
+        Write-Host ""
+        Write-Host "  Proceed with cleaning? (y/N): " -NoNewline -ForegroundColor White
+        $confirm = Read-Host
+        if ($confirm.ToLower() -ne 'y') {
+            Write-ColorLine "  Cancelled." DarkGray
+            return
+        }
+    }
+
+    Invoke-CleanExecute
+    Show-CleanSummary
+    Write-CleanLog
+
+    Write-Host ""
+    Write-ColorLine "  Re-run with -Clean anytime -- safe to repeat." DarkGray
+    Write-Host ""
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
 function Print-Help {
@@ -2522,6 +3732,9 @@ function Print-Help {
     Write-Host "Options:"
     Write-Host "  -Uninstall    Full uninstall — revert all hardening changes"
     Write-Host "  -Modify       Interactive module picker — add or remove individual modules"
+    Write-Host "  -Clean        System cleaner — remove caches, logs, browser data, and more"
+    Write-Host "  -Force        Skip confirmation prompts (use with -Clean)"
+    Write-Host "  -DryRun       Preview changes without applying them (use with -Clean)"
     Write-Host "  -Help         Show this help message"
     Write-Host ""
     Write-Host "No options: launch the interactive hardening wizard."
@@ -2539,6 +3752,11 @@ function Main {
     }
     if ($Modify) {
         $script:RunMode = "modify"
+    }
+
+    if ($Clean) {
+        Invoke-Clean
+        exit 0
     }
 
     Print-Header
