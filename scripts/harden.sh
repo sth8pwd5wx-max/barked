@@ -4771,6 +4771,9 @@ parse_args() {
                 echo "  $0 --auto --profile standard        Apply standard profile non-interactively"
                 echo "  $0 --auto --profile paranoid -q     Silent paranoid hardening"
                 echo "  $0 --uninstall                      Revert all changes"
+                echo "  $0 --clean                          Interactive system cleaner"
+                echo "  $0 --clean --dry-run                Preview what would be cleaned"
+                echo "  $0 --clean --force                  Clean without confirmation"
                 exit 0
                 ;;
             *)

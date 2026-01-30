@@ -3737,6 +3737,12 @@ function Print-Help {
     Write-Host "  -DryRun       Preview changes without applying them (use with -Clean)"
     Write-Host "  -Help         Show this help message"
     Write-Host ""
+    Write-Host "Examples:"
+    Write-Host "  .\harden.ps1                        Interactive wizard"
+    Write-Host "  .\harden.ps1 -Clean                 Interactive system cleaner"
+    Write-Host "  .\harden.ps1 -Clean -DryRun         Preview what would be cleaned"
+    Write-Host "  .\harden.ps1 -Clean -Force          Clean without confirmation"
+    Write-Host ""
     Write-Host "No options: launch the interactive hardening wizard."
     Write-Host ""
 }

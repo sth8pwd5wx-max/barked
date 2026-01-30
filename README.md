@@ -91,6 +91,33 @@ MAC address rotation, VPN kill switch, traffic obfuscation (DAITA/Tor), browser 
 
 For platform-specific implementation details, see [docs/plans/2026-01-29-hardening-wizard-design.md](docs/plans/2026-01-29-hardening-wizard-design.md).
 
+## System Cleaner
+
+Built-in system cleaner for privacy and disk hygiene. Run alongside hardening or independently.
+
+```bash
+sudo ./harden.sh --clean              # Interactive cleaning wizard
+sudo ./harden.sh --clean --dry-run    # Preview what would be cleaned
+sudo ./harden.sh --clean --force      # Skip confirmation prompt
+```
+
+Windows:
+```powershell
+.\harden.ps1 -Clean                   # Interactive cleaning wizard
+.\harden.ps1 -Clean -DryRun           # Preview what would be cleaned
+.\harden.ps1 -Clean -Force            # Skip confirmation prompt
+```
+
+**Categories:** System Caches & Logs, User Caches & Logs, Browser Data, Privacy Traces, Developer Cruft, Trash & Downloads, Mail & Messages
+
+**Features:**
+- Two-level picker: select categories, then optionally drill into individual targets
+- Auto-detects installed browsers and dev tools
+- Size-estimated preview before any deletion
+- Safety guardrails: no symlink following, skips in-use files, warns about running browsers
+- Cleanliness score with severity-weighted scoring
+- Full logging to `audits/clean-log-YYYY-MM-DD.txt`
+
 ## Uninstall & Modify
 
 **Full uninstall** — revert all changes:
