@@ -17,6 +17,7 @@ readonly LOG_FILE="${SCRIPT_DIR}/../audits/hardening-log-${DATE}.txt"
 if [[ -t 1 ]]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
+    BROWN='\033[0;33m'
     YELLOW='\033[0;33m'
     BLUE='\033[0;34m'
     MAGENTA='\033[0;35m'
@@ -26,7 +27,7 @@ if [[ -t 1 ]]; then
     BOLD='\033[1m'
     NC='\033[0m'
 else
-    RED='' GREEN='' YELLOW='' BLUE='' MAGENTA='' CYAN='' WHITE='' DIM='' BOLD='' NC=''
+    RED='' GREEN='' BROWN='' YELLOW='' BLUE='' MAGENTA='' CYAN='' WHITE='' DIM='' BOLD='' NC=''
 fi
 
 # ═══════════════════════════════════════════════════════════════════
@@ -223,34 +224,34 @@ log_entry() {
 
 print_header() {
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}${BOLD}        SYSTEM HARDENING WIZARD v${VERSION}           ${NC}${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}        macOS / Linux                             ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}${BOLD}        SYSTEM HARDENING WIZARD v${VERSION}           ${NC}${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}        macOS / Linux                             ${GREEN}║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
 print_section() {
     echo ""
-    echo -e "${BOLD}${WHITE}═══ $1 ═══${NC}"
+    echo -e "${BOLD}${GREEN}═══ $1 ═══${NC}"
     echo ""
 }
 
 print_status() {
     local num="$1" total="$2" desc="$3" status="$4"
     case "$status" in
-        applied)  echo -e "  ${GREEN}✓${NC} [${num}/${total}] ${desc} ${DIM}(applied)${NC}" ;;
-        reverted) echo -e "  ${GREEN}✓${NC} [${num}/${total}] ${desc} ${DIM}(reverted)${NC}" ;;
-        skipped)  echo -e "  ${GREEN}○${NC} [${num}/${total}] ${desc} ${DIM}(already applied)${NC}" ;;
+        applied)  echo -e "  ${GREEN}✓${NC} [${num}/${total}] ${desc} ${BROWN}(applied)${NC}" ;;
+        reverted) echo -e "  ${GREEN}✓${NC} [${num}/${total}] ${desc} ${BROWN}(reverted)${NC}" ;;
+        skipped)  echo -e "  ${GREEN}○${NC} [${num}/${total}] ${desc} ${BROWN}(already applied)${NC}" ;;
         failed)   echo -e "  ${RED}✗${NC} [${num}/${total}] ${desc} ${RED}(failed)${NC}" ;;
-        manual)   echo -e "  ${YELLOW}☐${NC} [${num}/${total}] ${desc} ${YELLOW}(manual)${NC}" ;;
-        skipped_unsupported) echo -e "  ${DIM}–${NC} [${num}/${total}] ${desc} ${DIM}(not available on ${OS})${NC}" ;;
+        manual)   echo -e "  ${RED}☐${NC} [${num}/${total}] ${desc} ${RED}(manual)${NC}" ;;
+        skipped_unsupported) echo -e "  ${BROWN}–${NC} [${num}/${total}] ${desc} ${BROWN}(not available on ${OS})${NC}" ;;
     esac
 }
 
 print_progress() {
     local desc="$1"
-    echo -ne "  ${YELLOW}⟳${NC} [${CURRENT_MODULE}/${TOTAL_MODULES}] ${desc}..."
+    echo -ne "  ${BROWN}⟳${NC} [${CURRENT_MODULE}/${TOTAL_MODULES}] ${desc}..."
 }
 
 clear_progress() {
@@ -264,7 +265,7 @@ prompt_choice() {
     echo -e "${BOLD}${prompt}${NC}"
     echo ""
     for i in "${!options[@]}"; do
-        echo -e "  ${CYAN}[$((i+1))]${NC} ${options[$i]}"
+        echo -e "  ${GREEN}[$((i+1))]${NC} ${options[$i]}"
     done
     echo ""
     while true; do
@@ -291,8 +292,8 @@ pause_guide() {
     local message="$1"
     if [[ "$OUTPUT_MODE" == "pause" ]]; then
         echo ""
-        echo -e "  ${YELLOW}☐ MANUAL STEP:${NC} ${message}"
-        echo -ne "  ${DIM}Press Enter when done (or S to skip)...${NC} "
+        echo -e "  ${RED}☐ MANUAL STEP:${NC} ${message}"
+        echo -ne "  ${BROWN}Press Enter when done (or S to skip)...${NC} "
         read -r response
         if [[ "${response,,}" == "s" ]]; then
             return 1
@@ -345,7 +346,7 @@ detect_os() {
 check_privileges() {
     if [[ $EUID -ne 0 ]]; then
         echo ""
-        echo -e "${YELLOW}This script requires root/sudo privileges to apply system changes.${NC}"
+        echo -e "${RED}This script requires root/sudo privileges to apply system changes.${NC}"
         echo -e "Please re-run: ${BOLD}sudo $0${NC}"
         echo ""
         exit 1
@@ -444,7 +445,7 @@ state_read() {
     fi
 
     if ! command -v python3 &>/dev/null; then
-        echo -e "  ${YELLOW}Warning: python3 required for state file. Using live detection.${NC}"
+        echo -e "  ${RED}Warning: python3 required for state file. Using live detection.${NC}"
         return 1
     fi
 
@@ -483,7 +484,7 @@ PYREAD
 
 state_write() {
     if ! command -v python3 &>/dev/null; then
-        echo -e "  ${YELLOW}Warning: python3 required for state file. State not saved.${NC}"
+        echo -e "  ${RED}Warning: python3 required for state file. State not saved.${NC}"
         return 1
     fi
 
@@ -541,9 +542,9 @@ for path in sys.argv[1:]:
 PYWRITE
 
     echo ""
-    echo -e "  ${DIM}State file written to:${NC}"
+    echo -e "  ${BROWN}State file written to:${NC}"
     for t in "${write_targets[@]}"; do
-        echo -e "    ${DIM}${t}${NC}"
+        echo -e "    ${BROWN}${t}${NC}"
     done
 }
 
@@ -694,7 +695,7 @@ print_score_bar() {
 
     local color="$RED"
     if [[ $pct -ge 80 ]]; then color="$GREEN"
-    elif [[ $pct -ge 50 ]]; then color="$YELLOW"
+    elif [[ $pct -ge 50 ]]; then color="$BROWN"
     fi
 
     echo -e "  ${BOLD}Hardening Score: ${color}${pct}/100${NC} [${color}${bar}${NC}]"
@@ -712,7 +713,7 @@ print_findings_table() {
     if [[ "$QUIET_MODE" != true ]]; then
         echo ""
         printf "  ${BOLD}%-8s %-10s %-22s %s${NC}\n" "Status" "Severity" "Module" "Finding"
-        printf "  ${DIM}%-8s %-10s %-22s %s${NC}\n" "------" "--------" "--------------------" "-------"
+        printf "  ${BROWN}%-8s %-10s %-22s %s${NC}\n" "------" "--------" "--------------------" "-------"
     fi
 
     for sev in "${sev_order[@]}"; do
@@ -728,9 +729,9 @@ print_findings_table() {
             case "$status" in
                 PASS)   icon="✓"; color="$GREEN" ;;
                 FAIL)   icon="✗"; color="$RED" ;;
-                MANUAL) icon="~"; color="$YELLOW" ;;
-                SKIP)   icon="○"; color="$DIM" ;;
-                N/A)    icon="—"; color="$DIM" ;;
+                MANUAL) icon="~"; color="$RED" ;;
+                SKIP)   icon="○"; color="$BROWN" ;;
+                N/A)    icon="—"; color="$BROWN" ;;
             esac
 
             if [[ "$QUIET_MODE" != true ]]; then
@@ -807,7 +808,7 @@ run_audit() {
         print_section "Security Audit Report"
         print_findings_table findings_map audit_mods
         print_score_bar "$pct"
-        echo -e "  ${DIM}${_ac} of ${_tc} modules passing${NC}"
+        echo -e "  ${BROWN}${_ac} of ${_tc} modules passing${NC}"
         echo ""
     fi
 
@@ -952,9 +953,9 @@ pre_change_analysis() {
         echo -e "  ${BOLD}Pre-change analysis complete.${NC}"
         echo ""
         echo -e "    Already applied:   ${GREEN}${already_applied}${NC} modules (skipping)"
-        echo -e "    Not applicable:    ${DIM}${not_applicable}${NC} modules (skipping)"
+        echo -e "    Not applicable:    ${BROWN}${not_applicable}${NC} modules (skipping)"
         if [[ $partial -gt 0 ]]; then
-            echo -e "    Partially applied: ${YELLOW}${partial}${NC} modules (will complete)"
+            echo -e "    Partially applied: ${RED}${partial}${NC} modules (will complete)"
         fi
         echo -e "    To apply:          ${BOLD}${to_apply}${NC} modules"
         echo ""
@@ -2017,13 +2018,13 @@ interactive_picker() {
         for i in "${!display_lines[@]}"; do
             echo -ne "\033[2K"  # clear line
             if [[ "${display_states[$i]}" == "header" ]]; then
-                echo -e "  ${BOLD}${WHITE}${display_lines[$i]}${NC}"
+                echo -e "  ${BOLD}${GREEN}${display_lines[$i]}${NC}"
             else
                 local check=" "
                 [[ "${display_states[$i]}" == "on" ]] && check="${GREEN}✓${NC}"
                 local prefix="   "
                 if [[ $i -eq $cursor ]]; then
-                    prefix="${CYAN} ▸ ${NC}"
+                    prefix="${GREEN} ▸ ${NC}"
                 fi
                 echo -e "${prefix}[${check}] ${display_lines[$i]}"
             fi
@@ -2108,14 +2109,14 @@ select_profile() {
 
     echo -e "${BOLD}Select a hardening profile:${NC}"
     echo ""
-    echo -e "  ${CYAN}[1]${NC} Standard  — Encrypted disk, firewall, secure DNS, auto-updates, basic browser hardening"
-    echo -e "  ${CYAN}[2]${NC} High      — Standard + outbound firewall, hostname scrubbing, monitoring tools, SSH hardening, telemetry disabled"
-    echo -e "  ${CYAN}[3]${NC} Paranoid  — High + MAC rotation, traffic obfuscation, VPN kill switch, full audit system, metadata stripping, border crossing prep"
-    echo -e "  ${CYAN}[4]${NC} Advanced  — Custom questionnaire (choose per-category)"
+    echo -e "  ${GREEN}[1]${NC} Standard  — Encrypted disk, firewall, secure DNS, auto-updates, basic browser hardening"
+    echo -e "  ${GREEN}[2]${NC} High      — Standard + outbound firewall, hostname scrubbing, monitoring tools, SSH hardening, telemetry disabled"
+    echo -e "  ${GREEN}[3]${NC} Paranoid  — High + MAC rotation, traffic obfuscation, VPN kill switch, full audit system, metadata stripping, border crossing prep"
+    echo -e "  ${GREEN}[4]${NC} Advanced  — Custom questionnaire (choose per-category)"
     echo ""
     echo -e "  ${MAGENTA}[M]${NC} Modify    — Add or remove individual modules"
     echo -e "  ${RED}[U]${NC} Uninstall — Remove all hardening changes"
-    echo -e "  ${DIM}[Q] Quit${NC}"
+    echo -e "  ${BROWN}[Q] Quit${NC}"
     echo ""
 
     while true; do
@@ -2144,7 +2145,7 @@ select_profile() {
 # ═══════════════════════════════════════════════════════════════════
 run_questionnaire() {
     print_section "Advanced Questionnaire"
-    echo -e "  ${DIM}Answer 8 questions to build a custom hardening profile.${NC}"
+    echo -e "  ${BROWN}Answer 8 questions to build a custom hardening profile.${NC}"
     echo ""
 
     # Q1: Threat model
@@ -2369,16 +2370,16 @@ run_module() {
         local sev="${MODULE_SEVERITY[$mod_id]:-LOW}"
         if [[ "$QUIET_MODE" != true ]]; then
             echo ""
-            echo -e "  ${CYAN}[DRY RUN]${NC} ${BOLD}${mod_id}${NC}"
+            echo -e "  ${GREEN}[DRY RUN]${NC} ${BOLD}${mod_id}${NC}"
             echo -e "    Current:  ${CHECK_FINDING}"
             if [[ "$CHECK_STATUS" == "PASS" ]]; then
-                echo -e "    Planned:  ${DIM}No change needed${NC}"
+                echo -e "    Planned:  ${BROWN}No change needed${NC}"
             else
                 echo -e "    Planned:  $(dry_run_description "$mod_id")"
             fi
             echo -e "    Severity: ${sev}"
             if [[ -n "${ADVANCED_MODULES[$mod_id]:-}" ]]; then
-                echo -e "    ${YELLOW}Advanced — requires confirmation in live run${NC}"
+                echo -e "    ${RED}Advanced — requires confirmation in live run${NC}"
             fi
         fi
         log_entry "$mod_id" "dry-run" "$CHECK_STATUS" "$CHECK_FINDING"
@@ -3606,10 +3607,10 @@ vet_advanced_module() {
     echo -e "${RED}║${NC}"
     echo -e "${RED}║${NC}  ${risk_desc}"
     echo -e "${RED}║${NC}"
-    echo -e "${RED}║${NC}  ${DIM}This module requires explicit confirmation to apply.${NC}"
+    echo -e "${RED}║${NC}  ${BROWN}This module requires explicit confirmation to apply.${NC}"
     echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${CYAN}Running mandatory dry-run preview...${NC}"
+    echo -e "  ${GREEN}Running mandatory dry-run preview...${NC}"
     echo ""
     if declare -f "$preview_func" &>/dev/null; then "$preview_func"; fi
     echo ""
@@ -3641,7 +3642,7 @@ preview_kernel_sysctl() {
             printf "  %-44s %-10s %s\n" "$key" "$current" "${expected} (no change)"
             ((correct++))
         else
-            printf "  ${YELLOW}%-44s %-10s %s${NC}\n" "$key" "$current" "$expected"
+            printf "  ${RED}%-44s %-10s %s${NC}\n" "$key" "$current" "$expected"
             ((changes++))
         fi
     done
@@ -3699,11 +3700,11 @@ preview_apparmor_enforce() {
         local enforce_count; enforce_count=$(aa-status 2>/dev/null | grep -c "enforce" || echo "0")
         local complain_count; complain_count=$(aa-status 2>/dev/null | grep -c "complain" || echo "0")
         echo -e "  Enforce mode:  ${enforce_count} profiles"
-        echo -e "  Complain mode: ${YELLOW}${complain_count}${NC} profiles"
+        echo -e "  Complain mode: ${RED}${complain_count}${NC} profiles"
         echo -e "  Planned: Set all complain → enforce"
     elif [[ "$OS" == "macos" ]]; then
         echo -e "  macOS: Will audit apps for Sandbox entitlements"
-        echo -e "  ${DIM}Informational only — no system changes${NC}"
+        echo -e "  ${BROWN}Informational only — no system changes${NC}"
     fi
 }
 
@@ -3758,13 +3759,13 @@ mod_apparmor_enforce() {
 preview_boot_security() {
     if [[ "$OS" == "macos" ]]; then
         echo -e "  SIP Status: $(csrutil status 2>/dev/null || echo 'Unknown')"
-        echo -e "  ${DIM}macOS: Verification only — no changes${NC}"
+        echo -e "  ${BROWN}macOS: Verification only — no changes${NC}"
     elif [[ "$OS" == "linux" ]]; then
         echo -e "  Secure Boot: $(mokutil --sb-state 2>/dev/null || echo 'Cannot determine')"
         if grep -q "set superusers" /etc/grub.d/40_custom 2>/dev/null; then
             echo -e "  GRUB password: ${GREEN}Configured${NC}"
         else
-            echo -e "  GRUB password: ${YELLOW}Not set${NC} — will configure"
+            echo -e "  GRUB password: ${RED}Not set${NC} — will configure"
         fi
     fi
 }
@@ -4414,7 +4415,7 @@ run_uninstall() {
         echo -e "  Applied modules: ${BOLD}${applied_count}${NC}"
         echo -e "  Last run: ${BOLD}${STATE_LAST_RUN}${NC}"
     else
-        echo -e "  ${YELLOW}No state file found. Using live detection...${NC}"
+        echo -e "  ${RED}No state file found. Using live detection...${NC}"
         detect_applied_modules
         applied_count=$(state_count_applied)
         echo -e "  Detected modules: ${BOLD}${applied_count}${NC}"
@@ -4434,9 +4435,9 @@ run_uninstall() {
         echo -e "    ${BOLD}${STATE_PACKAGES[*]}${NC}"
         echo ""
         echo -e "  Remove installed tools as well?"
-        echo -e "    ${CYAN}[Y]${NC} Yes — uninstall all tools listed above"
-        echo -e "    ${CYAN}[N]${NC} No  — keep tools, only revert settings"
-        echo -e "    ${DIM}[Q] Quit${NC}"
+        echo -e "    ${GREEN}[Y]${NC} Yes — uninstall all tools listed above"
+        echo -e "    ${GREEN}[N]${NC} No  — keep tools, only revert settings"
+        echo -e "    ${BROWN}[Q] Quit${NC}"
         echo ""
         while true; do
             echo -ne "  ${BOLD}Choice:${NC} "
@@ -4453,7 +4454,7 @@ run_uninstall() {
     echo ""
     local pkg_msg=""
     $REMOVE_PACKAGES && pkg_msg=" and remove ${#STATE_PACKAGES[@]} packages"
-    echo -e "  ${YELLOW}⚠  This will revert ${applied_count} modules${pkg_msg}.${NC}"
+    echo -e "  ${RED}⚠  This will revert ${applied_count} modules${pkg_msg}.${NC}"
     if ! prompt_yn "Proceed?"; then
         echo "Aborted."
         exit 0
@@ -4499,7 +4500,7 @@ run_modify() {
     if state_read; then
         echo -e "  State file loaded: ${BOLD}$(state_count_applied)${NC} modules currently applied."
     else
-        echo -e "  ${YELLOW}No state file found. Using live detection...${NC}"
+        echo -e "  ${RED}No state file found. Using live detection...${NC}"
         detect_applied_modules
         echo -e "  Detected: ${BOLD}$(state_count_applied)${NC} modules currently applied."
     fi
@@ -4579,14 +4580,14 @@ run_modify() {
 # ═══════════════════════════════════════════════════════════════════
 print_summary() {
     echo ""
-    echo -e "${BOLD}${WHITE}═══════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}${WHITE}  Hardening Complete${NC}"
-    echo -e "${BOLD}${WHITE}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}  Hardening Complete${NC}"
+    echo -e "${BOLD}${GREEN}═══════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${GREEN}✓${NC} Applied:    ${BOLD}${COUNT_APPLIED}${NC}"
-    echo -e "  ${GREEN}○${NC} Skipped:    ${BOLD}${COUNT_SKIPPED}${NC} ${DIM}(already applied)${NC}"
+    echo -e "  ${GREEN}○${NC} Skipped:    ${BOLD}${COUNT_SKIPPED}${NC} ${BROWN}(already applied)${NC}"
     echo -e "  ${RED}✗${NC} Failed:     ${BOLD}${COUNT_FAILED}${NC}$([ $COUNT_FAILED -gt 0 ] && echo -e " ${RED}(see log)${NC}")"
-    echo -e "  ${YELLOW}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${YELLOW}(see below)${NC}")"
+    echo -e "  ${RED}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${RED}(see below)${NC}")"
     echo ""
 
     # Post-run score: count applied + skipped (already done) as passing
@@ -4602,7 +4603,7 @@ print_summary() {
     local _aw _tw pct _ac _tc
     read -r _aw _tw pct _ac _tc <<< "$score_output"
     print_score_bar "$pct"
-    echo -e "  ${DIM}${_ac} of ${_tc} modules applied${NC}"
+    echo -e "  ${BROWN}${_ac} of ${_tc} modules applied${NC}"
     echo ""
 
     echo -e "  Profile: ${BOLD}${PROFILE}${NC} | OS: ${BOLD}${OS}${NC} | Date: ${BOLD}${DATE}${NC}"
@@ -4611,14 +4612,14 @@ print_summary() {
 
 print_uninstall_summary() {
     echo ""
-    echo -e "${BOLD}${WHITE}═══════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}${WHITE}  Uninstall Complete${NC}"
-    echo -e "${BOLD}${WHITE}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}  Uninstall Complete${NC}"
+    echo -e "${BOLD}${GREEN}═══════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${GREEN}✓${NC} Reverted:   ${BOLD}${COUNT_REVERTED}${NC}"
     echo -e "  ${GREEN}○${NC} Skipped:    ${BOLD}${COUNT_SKIPPED}${NC}"
     echo -e "  ${RED}✗${NC} Failed:     ${BOLD}${COUNT_FAILED}${NC}$([ $COUNT_FAILED -gt 0 ] && echo -e " ${RED}(see log)${NC}")"
-    echo -e "  ${YELLOW}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${YELLOW}(see below)${NC}")"
+    echo -e "  ${RED}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${RED}(see below)${NC}")"
     echo ""
     echo -e "  OS: ${BOLD}${OS}${NC} | Date: ${BOLD}${DATE}${NC}"
     echo ""
@@ -4626,9 +4627,9 @@ print_uninstall_summary() {
 
 print_modify_summary() {
     echo ""
-    echo -e "${BOLD}${WHITE}═══════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}${WHITE}  Modify Complete${NC}"
-    echo -e "${BOLD}${WHITE}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}═══════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${GREEN}  Modify Complete${NC}"
+    echo -e "${BOLD}${GREEN}═══════════════════════════════════════════════════${NC}"
     echo ""
     if [[ $COUNT_APPLIED -gt 0 ]]; then
         echo -e "  ${GREEN}✓${NC} Added:      ${BOLD}${COUNT_APPLIED}${NC}"
@@ -4638,7 +4639,7 @@ print_modify_summary() {
     fi
     echo -e "  ${GREEN}○${NC} Skipped:    ${BOLD}${COUNT_SKIPPED}${NC}"
     echo -e "  ${RED}✗${NC} Failed:     ${BOLD}${COUNT_FAILED}${NC}$([ $COUNT_FAILED -gt 0 ] && echo -e " ${RED}(see log)${NC}")"
-    echo -e "  ${YELLOW}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${YELLOW}(see below)${NC}")"
+    echo -e "  ${RED}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${RED}(see below)${NC}")"
     echo ""
     echo -e "  OS: ${BOLD}${OS}${NC} | Date: ${BOLD}${DATE}${NC}"
     echo ""
@@ -4648,7 +4649,7 @@ print_manual_checklist() {
     if [[ ${#MANUAL_STEPS[@]} -gt 0 ]]; then
         print_section "Manual Steps Remaining"
         for i in "${!MANUAL_STEPS[@]}"; do
-            echo -e "  ${YELLOW}☐${NC} $((i+1)). ${MANUAL_STEPS[$i]}"
+            echo -e "  ${RED}☐${NC} $((i+1)). ${MANUAL_STEPS[$i]}"
             echo ""
         done
     fi
@@ -4704,7 +4705,7 @@ write_log() {
             echo "$entry"
         done
     } > "$LOG_FILE"
-    echo -e "  ${DIM}Log written to: ${LOG_FILE}${NC}"
+    echo -e "  ${BROWN}Log written to: ${LOG_FILE}${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -4870,7 +4871,7 @@ clean_target_available() {
 # ═══════════════════════════════════════════════════════════════════
 clean_picker() {
     print_section "Select Categories"
-    echo -e "  ${DIM}Toggle categories, then press Enter to continue.${NC}"
+    echo -e "  ${BROWN}Toggle categories, then press Enter to continue.${NC}"
     echo ""
 
     # Start with all selected
@@ -4884,10 +4885,10 @@ clean_picker() {
             local num=$((i + 1))
             local mark=" "
             [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]] && mark="*"
-            echo -e "  ${CYAN}[$num]${NC} [${mark}] ${CLEAN_CAT_NAMES[$cat]}"
+            echo -e "  ${GREEN}[$num]${NC} [${mark}] ${CLEAN_CAT_NAMES[$cat]}"
         done
         echo ""
-        echo -e "  ${CYAN}[A]${NC} Select All    ${CYAN}[N]${NC} Select None"
+        echo -e "  ${GREEN}[A]${NC} Select All    ${GREEN}[N]${NC} Select None"
         echo ""
         echo -ne "  ${BOLD}Toggle (1-7, A, N) or Enter to continue:${NC} "
         read -r input
@@ -4964,7 +4965,7 @@ clean_drilldown() {
                 local num=$((i + 1))
                 local mark=" "
                 [[ "${CLEAN_TARGETS[$t]:-0}" == "1" ]] && mark="*"
-                echo -e "    ${CYAN}[$num]${NC} [${mark}] ${CLEAN_TARGET_NAMES[$t]}"
+                echo -e "    ${GREEN}[$num]${NC} [${mark}] ${CLEAN_TARGET_NAMES[$t]}"
             done
             echo ""
             echo -ne "    ${BOLD}Toggle (1-${#avail[@]}) or Enter to keep:${NC} "
@@ -5391,18 +5392,18 @@ clean_preview() {
     done
 
     for target in "${ordered_targets[@]}"; do
-        echo -ne "  ${YELLOW}⟳${NC} Scanning ${CLEAN_TARGET_NAMES[$target]}...\r"
+        echo -ne "  ${BROWN}⟳${NC} Scanning ${CLEAN_TARGET_NAMES[$target]}...\r"
         scan_target "$target"
         echo -ne "\033[K"
     done
 
     local total_files=0 total_bytes=0
     echo ""
-    echo -e "  ${BOLD}${WHITE}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${BOLD}${WHITE}║                   CLEANING PREVIEW                       ║${NC}"
-    echo -e "  ${BOLD}${WHITE}╠══════════════════════════════════════════════════════════╣${NC}"
+    echo -e "  ${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${BOLD}${GREEN}║                   CLEANING PREVIEW                       ║${NC}"
+    echo -e "  ${BOLD}${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
     printf "  ${BOLD}  %-32s %8s %10s %8s${NC}\n" "Target" "Files" "Size" "Status"
-    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
 
     for target in "${ordered_targets[@]}"; do
         local files="${CLEAN_SCAN_FILES[$target]:-0}"
@@ -5424,7 +5425,7 @@ clean_preview() {
         [[ $files -eq 0 ]] && file_str="—"
 
         local color="$NC"
-        [[ "$status" == "Empty" ]] && color="$DIM"
+        [[ "$status" == "Empty" ]] && color="$BROWN"
 
         printf "  ${color}  %-32s %8s %10s %8s${NC}\n" \
             "${CLEAN_TARGET_NAMES[$target]}" "$file_str" "$size_str" "$status"
@@ -5433,9 +5434,9 @@ clean_preview() {
         total_bytes=$((total_bytes + bytes))
     done
 
-    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
     printf "  ${BOLD}  %-32s %8s %10s${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
-    echo -e "  ${BOLD}${WHITE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 
     CLEAN_TOTAL_SCAN_FILES=$total_files
     CLEAN_TOTAL_SCAN_BYTES=$total_bytes
@@ -5603,7 +5604,7 @@ clean_saved_app_state() {
 
 clean_safari() {
     if browser_running "Safari"; then
-        echo -e "  ${YELLOW}⚠${NC}  Safari is running — close it first to clean"
+        echo -e "  ${RED}⚠${NC}  Safari is running — close it first to clean"
         clean_log "SKIP" "Safari (browser running)"
         CLEAN_RESULT_FILES[safari]=0; CLEAN_RESULT_BYTES[safari]=0; CLEAN_RESULT_STATUS[safari]="fail"
         return
@@ -5624,7 +5625,7 @@ clean_safari() {
 
 clean_chrome() {
     if browser_running "Google Chrome"; then
-        echo -e "  ${YELLOW}⚠${NC}  Chrome is running — close it first to clean"
+        echo -e "  ${RED}⚠${NC}  Chrome is running — close it first to clean"
         clean_log "SKIP" "Chrome (browser running)"
         CLEAN_RESULT_FILES[chrome]=0; CLEAN_RESULT_BYTES[chrome]=0; CLEAN_RESULT_STATUS[chrome]="fail"
         return
@@ -5641,7 +5642,7 @@ clean_chrome() {
 
 clean_firefox() {
     if browser_running "firefox"; then
-        echo -e "  ${YELLOW}⚠${NC}  Firefox is running — close it first to clean"
+        echo -e "  ${RED}⚠${NC}  Firefox is running — close it first to clean"
         clean_log "SKIP" "Firefox (browser running)"
         CLEAN_RESULT_FILES[firefox]=0; CLEAN_RESULT_BYTES[firefox]=0; CLEAN_RESULT_STATUS[firefox]="fail"
         return
@@ -5658,7 +5659,7 @@ clean_firefox() {
 
 clean_arc() {
     if browser_running "Arc"; then
-        echo -e "  ${YELLOW}⚠${NC}  Arc is running — close it first to clean"
+        echo -e "  ${RED}⚠${NC}  Arc is running — close it first to clean"
         clean_log "SKIP" "Arc (browser running)"
         CLEAN_RESULT_FILES[arc]=0; CLEAN_RESULT_BYTES[arc]=0; CLEAN_RESULT_STATUS[arc]="fail"
         return
@@ -5671,7 +5672,7 @@ clean_arc() {
 
 clean_edge() {
     if browser_running "Microsoft Edge"; then
-        echo -e "  ${YELLOW}⚠${NC}  Edge is running — close it first to clean"
+        echo -e "  ${RED}⚠${NC}  Edge is running — close it first to clean"
         clean_log "SKIP" "Edge (browser running)"
         CLEAN_RESULT_FILES[edge]=0; CLEAN_RESULT_BYTES[edge]=0; CLEAN_RESULT_STATUS[edge]="fail"
         return
@@ -5743,7 +5744,7 @@ clean_clipboard() {
 
 clean_search_metadata() {
     if [[ "$OS" == "macos" ]]; then
-        echo -e "  ${YELLOW}☐${NC}  Spotlight: To rebuild, run: sudo mdutil -E /"
+        echo -e "  ${RED}☐${NC}  Spotlight: To rebuild, run: sudo mdutil -E /"
         clean_log "MANUAL" "Spotlight rebuild guidance shown"
     else
         if command -v tracker3 &>/dev/null; then
@@ -5933,7 +5934,7 @@ clean_execute() {
 
     for target in "${ordered_targets[@]}"; do
         ((current++))
-        echo -ne "  ${YELLOW}⟳${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}..."
+        echo -ne "  ${BROWN}⟳${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}..."
 
         local func="clean_${target//-/_}"
         if declare -f "$func" &>/dev/null; then
@@ -5951,9 +5952,9 @@ clean_execute() {
 
         case "$status" in
             pass)    echo -e "  ${GREEN}✓${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}${freed_str}" ;;
-            skip)    echo -e "  ${GREEN}○${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]} ${DIM}(nothing to clean)${NC}" ;;
+            skip)    echo -e "  ${GREEN}○${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]} ${BROWN}(nothing to clean)${NC}" ;;
             fail)    echo -e "  ${RED}✗${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]} ${RED}(failed)${NC}" ;;
-            partial) echo -e "  ${YELLOW}◐${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}${freed_str} ${YELLOW}(partial)${NC}" ;;
+            partial) echo -e "  ${BROWN}◐${NC} [${current}/${total}] ${CLEAN_TARGET_NAMES[$target]}${freed_str} ${BROWN}(partial)${NC}" ;;
         esac
     done
 }
@@ -5997,11 +5998,11 @@ print_clean_summary() {
     local total_files=0 total_bytes=0
 
     echo ""
-    echo -e "  ${BOLD}${WHITE}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${BOLD}${WHITE}║                  CLEANING SUMMARY                        ║${NC}"
-    echo -e "  ${BOLD}${WHITE}╠══════════════════════════════════════════════════════════╣${NC}"
+    echo -e "  ${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${BOLD}${GREEN}║                  CLEANING SUMMARY                        ║${NC}"
+    echo -e "  ${BOLD}${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
     printf "  ${BOLD}  %-32s %8s %10s %8s${NC}\n" "Target" "Removed" "Freed" "Status"
-    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
 
     for target in "${ordered_targets[@]}"; do
         local files="${CLEAN_RESULT_FILES[$target]:-0}"
@@ -6016,9 +6017,9 @@ print_clean_summary() {
         local status_str color
         case "$status" in
             pass)    status_str="PASS";    color="$GREEN" ;;
-            skip)    status_str="SKIP";    color="$DIM" ;;
+            skip)    status_str="SKIP";    color="$BROWN" ;;
             fail)    status_str="FAIL";    color="$RED" ;;
-            partial) status_str="PARTIAL"; color="$YELLOW" ;;
+            partial) status_str="PARTIAL"; color="$BROWN" ;;
         esac
 
         printf "  ${color}  %-32s %8s %10s %8s${NC}\n" \
@@ -6028,9 +6029,9 @@ print_clean_summary() {
         total_bytes=$((total_bytes + bytes))
     done
 
-    echo -e "  ${DIM}  ────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
     printf "  ${BOLD}  %-32s %8s %10s${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
-    echo -e "  ${BOLD}${WHITE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
 
     local score_output
@@ -6040,7 +6041,7 @@ print_clean_summary() {
 
     local color="$RED"
     if [[ $pct -ge 80 ]]; then color="$GREEN"
-    elif [[ $pct -ge 50 ]]; then color="$YELLOW"
+    elif [[ $pct -ge 50 ]]; then color="$BROWN"
     fi
 
     local width=20
@@ -6069,7 +6070,7 @@ write_clean_log() {
             echo "$entry"
         done
     } >> "$CLEAN_LOG_FILE"
-    echo -e "  ${DIM}Log: ${CLEAN_LOG_FILE}${NC}"
+    echo -e "  ${BROWN}Log: ${CLEAN_LOG_FILE}${NC}"
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -6077,10 +6078,10 @@ write_clean_log() {
 # ═══════════════════════════════════════════════════════════════════
 run_clean() {
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}${BOLD}          SYSTEM CLEANER v${VERSION}                 ${NC}${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}          macOS / Linux                           ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}${BOLD}          SYSTEM CLEANER v${VERSION}                 ${NC}${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}          macOS / Linux                           ${GREEN}║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 
     clean_picker
     clean_drilldown
@@ -6089,7 +6090,7 @@ run_clean() {
     # Dry-run: show preview and exit
     if [[ "$DRY_RUN" == true ]]; then
         echo ""
-        echo -e "  ${CYAN}[DRY RUN]${NC} Preview only — no files deleted."
+        echo -e "  ${GREEN}[DRY RUN]${NC} Preview only — no files deleted."
         return
     fi
 
@@ -6099,7 +6100,7 @@ run_clean() {
         echo -ne "  ${BOLD}Proceed with cleaning? (y/N):${NC} "
         read -r confirm
         if [[ "${confirm,,}" != "y" ]]; then
-            echo -e "  ${DIM}Cancelled.${NC}"
+            echo -e "  ${BROWN}Cancelled.${NC}"
             return
         fi
     fi
@@ -6109,7 +6110,7 @@ run_clean() {
     write_clean_log
 
     echo ""
-    echo -e "  ${DIM}Re-run with --clean anytime — safe to repeat.${NC}"
+    echo -e "  ${BROWN}Re-run with --clean anytime — safe to repeat.${NC}"
     echo ""
 }
 
@@ -6233,7 +6234,7 @@ main() {
     esac
 
     echo ""
-    echo -e "  ${DIM}Re-run this script anytime — it's safe to repeat.${NC}"
+    echo -e "  ${BROWN}Re-run this script anytime — it's safe to repeat.${NC}"
     echo ""
 }
 

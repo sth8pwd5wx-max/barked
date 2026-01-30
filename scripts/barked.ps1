@@ -168,48 +168,48 @@ function Log-Entry {
 
 function Print-Header {
     Write-Host ""
-    Write-ColorLine "╔══════════════════════════════════════════════════╗" Cyan
-    Write-Host "║" -ForegroundColor Cyan -NoNewline
-    Write-Host "        SYSTEM HARDENING WIZARD v$($script:VERSION)           " -ForegroundColor White -NoNewline
-    Write-ColorLine "║" Cyan
-    Write-Host "║" -ForegroundColor Cyan -NoNewline
+    Write-ColorLine "╔══════════════════════════════════════════════════╗ Green
+    Write-Host "║" -ForegroundColor Green -NoNewline
+    Write-Host "        SYSTEM HARDENING WIZARD v$($script:VERSION)           " -ForegroundColor Green -NoNewline
+    Write-ColorLine "║ Green
+    Write-Host "║" -ForegroundColor Green -NoNewline
     Write-Host "        Windows                                    " -NoNewline
-    Write-ColorLine "║" Cyan
-    Write-ColorLine "╚══════════════════════════════════════════════════╝" Cyan
+    Write-ColorLine "║ Green
+    Write-ColorLine "╚══════════════════════════════════════════════════╝ Green
     Write-Host ""
 }
 
 function Print-Section {
     param([string]$Title)
     Write-Host ""
-    Write-ColorLine "═══ $Title ═══" White
+    Write-ColorLine "═══ $Title ═══" Green
     Write-Host ""
 }
 
 function Print-Status {
     param([int]$Num, [int]$Total, [string]$Desc, [string]$Status)
     switch ($Status) {
-        "applied"  { Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(applied)" DarkGray }
-        "skipped"  { Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(already applied)" DarkGray }
+        "applied"  { Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(applied)" DarkYellow }
+        "skipped"  { Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(already applied)" DarkYellow }
         "failed"   { Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(failed)" Red }
-        "manual"   { Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(manual)" Yellow }
-        "reverted"  { Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(reverted)" DarkGray }
-        "skipped_unsupported" { Write-Host "  " -NoNewline; Write-Color "–" DarkGray; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(not available on Windows)" DarkGray }
+        "manual"   { Write-Host "  " -NoNewline; Write-Color "☐" Red; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(manual)" Red }
+        "reverted"  { Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(reverted)" DarkYellow }
+        "skipped_unsupported" { Write-Host "  " -NoNewline; Write-Color "–" DarkYellow; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(not available on Windows)" DarkYellow }
     }
 }
 
 function Prompt-Choice {
     param([string]$Prompt, [string[]]$Options)
-    Write-ColorLine $Prompt White
+    Write-ColorLine $Prompt Green
     Write-Host ""
     for ($i = 0; $i -lt $Options.Count; $i++) {
         Write-Host "  " -NoNewline
-        Write-Color "[$($i+1)]" Cyan
+        Write-Color "[$($i+1)] Green
         Write-Host " $($Options[$i])"
     }
     Write-Host ""
     while ($true) {
-        Write-Host "  Choice: " -NoNewline -ForegroundColor White
+        Write-Host "  Choice: " -NoNewline -ForegroundColor Green
         $choice = Read-Host
         if ($choice -eq "Q" -or $choice -eq "q") { Write-Host "Exiting."; exit 0 }
         $num = 0
@@ -222,7 +222,7 @@ function Prompt-Choice {
 
 function Prompt-YN {
     param([string]$Prompt)
-    Write-Host "  $Prompt [Y/n]: " -NoNewline -ForegroundColor White
+    Write-Host "  $Prompt [Y/n]: " -NoNewline -ForegroundColor Green
     $response = Read-Host
     return ($response -ne "n" -and $response -ne "N")
 }
@@ -231,8 +231,8 @@ function Pause-Guide {
     param([string]$Message)
     if ($script:OutputMode -eq "pause") {
         Write-Host ""
-        Write-Host "  " -NoNewline; Write-Color "☐ MANUAL STEP:" Yellow; Write-Host " $Message"
-        Write-Host "  Press Enter when done (or S to skip)... " -NoNewline -ForegroundColor DarkGray
+        Write-Host "  " -NoNewline; Write-Color "☐ MANUAL STEP:" Red; Write-Host " $Message"
+        Write-Host "  Press Enter when done (or S to skip)... " -NoNewline -ForegroundColor DarkYellow
         $response = Read-Host
         return ($response -ne "s" -and $response -ne "S")
     } else {
@@ -585,10 +585,10 @@ function Interactive-Picker {
 
     # Print header
     Write-Host ""
-    Write-ColorLine "═══ Modify Hardening ═══" White
+    Write-ColorLine "═══ Modify Hardening ═══" Green
     Write-Host ""
-    Write-ColorLine "  Use ↑↓ to navigate, SPACE to toggle, ENTER to apply changes, Q to cancel." DarkGray
-    Write-ColorLine "  Modules marked [✓] are currently applied." DarkGray
+    Write-ColorLine "  Use ↑↓ to navigate, SPACE to toggle, ENTER to apply changes, Q to cancel." DarkYellow
+    Write-ColorLine "  Modules marked [✓] are currently applied." DarkYellow
     Write-Host ""
 
     $startRow = [Console]::CursorTop
@@ -603,21 +603,21 @@ function Interactive-Picker {
                 $isSelected = ($d -eq $cursorPos)
                 if ($isSelected) {
                     Write-Host "  " -NoNewline
-                    Write-ColorLine $line.text Cyan
+                    Write-ColorLine $line.text Green
                 } else {
                     Write-Host "  " -NoNewline
-                    Write-ColorLine $line.text Yellow
+                    Write-ColorLine $line.text Red
                 }
             } else {
                 $idx = $line.itemIndex
                 $isSelected = ($d -eq $cursorPos)
                 $mark = if ($checked[$idx]) { "[✓]" } else { "[ ]" }
-                $markColor = if ($checked[$idx]) { "Green" } else { "DarkGray" }
+                $markColor = if ($checked[$idx]) { "Green" } else { "DarkYellow" }
 
                 if ($isSelected) {
-                    Write-Host "  > " -NoNewline -ForegroundColor Cyan
+                    Write-Host "  > " -NoNewline -ForegroundColor Green
                     Write-Color $mark $markColor
-                    Write-Host " $($line.text)" -ForegroundColor White
+                    Write-Host " $($line.text)" -ForegroundColor Green
                 } else {
                     Write-Host "    " -NoNewline
                     Write-Color $mark $markColor
@@ -664,7 +664,7 @@ function Interactive-Picker {
         elseif ($key.Character -eq 'q' -or $key.Character -eq 'Q') {
             # Cancel
             Write-Host ""
-            Write-ColorLine "  Cancelled." Yellow
+            Write-ColorLine "  Cancelled." Red
             return $false
         }
     }
@@ -688,12 +688,12 @@ function Check-Privileges {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Write-ColorLine "This script requires Administrator privileges." Yellow
-        Write-ColorLine "Right-click PowerShell > Run as Administrator, then re-run this script." Yellow
+        Write-ColorLine "This script requires Administrator privileges." Red
+        Write-ColorLine "Right-click PowerShell > Run as Administrator, then re-run this script." Red
         exit 1
     }
     Write-Host "  Detected: " -NoNewline
-    Write-ColorLine "Windows $(([System.Environment]::OSVersion.Version))" White
+    Write-ColorLine "Windows $(([System.Environment]::OSVersion.Version))" Green
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -723,19 +723,19 @@ function Install-Pkg {
 # ═══════════════════════════════════════════════════════════════════
 function Select-Profile {
     Print-Section "Profile Selection"
-    Write-ColorLine "Select a hardening profile:" White
+    Write-ColorLine "Select a hardening profile:" Green
     Write-Host ""
-    Write-Host "  " -NoNewline; Write-Color "[1]" Cyan; Write-Host " Standard  — Encrypted disk, firewall, secure DNS, auto-updates, basic browser hardening"
-    Write-Host "  " -NoNewline; Write-Color "[2]" Cyan; Write-Host " High      — Standard + outbound firewall, hostname scrubbing, monitoring tools, SSH hardening, telemetry disabled"
-    Write-Host "  " -NoNewline; Write-Color "[3]" Cyan; Write-Host " Paranoid  — High + MAC rotation, traffic obfuscation, VPN kill switch, full audit system, metadata stripping, border crossing prep"
-    Write-Host "  " -NoNewline; Write-Color "[4]" Cyan; Write-Host " Advanced  — Custom questionnaire (choose per-category)"
+    Write-Host "  " -NoNewline; Write-Color "[1] Green; Write-Host " Standard  — Encrypted disk, firewall, secure DNS, auto-updates, basic browser hardening"
+    Write-Host "  " -NoNewline; Write-Color "[2] Green; Write-Host " High      — Standard + outbound firewall, hostname scrubbing, monitoring tools, SSH hardening, telemetry disabled"
+    Write-Host "  " -NoNewline; Write-Color "[3] Green; Write-Host " Paranoid  — High + MAC rotation, traffic obfuscation, VPN kill switch, full audit system, metadata stripping, border crossing prep"
+    Write-Host "  " -NoNewline; Write-Color "[4] Green; Write-Host " Advanced  — Custom questionnaire (choose per-category)"
     Write-Host ""
     Write-Host "  " -NoNewline; Write-Color "[M]" Magenta; Write-Host " Modify    — Add or remove individual modules"
     Write-Host "  " -NoNewline; Write-Color "[U]" Red;     Write-Host " Uninstall — Remove all hardening changes"
-    Write-Host "  " -NoNewline; Write-Color "[Q]" DarkGray; Write-Host " Quit"
+    Write-Host "  " -NoNewline; Write-Color "[Q]" DarkYellow; Write-Host " Quit"
     Write-Host ""
     while ($true) {
-        Write-Host "  Choice: " -NoNewline -ForegroundColor White
+        Write-Host "  Choice: " -NoNewline -ForegroundColor Green
         $choice = Read-Host
         switch ($choice) {
             "1" { $script:Profile = "standard"; break }
@@ -750,7 +750,7 @@ function Select-Profile {
         break
     }
     Write-Host ""
-    Write-Host "  Profile: " -NoNewline; Write-ColorLine $script:Profile White
+    Write-Host "  Profile: " -NoNewline; Write-ColorLine $script:Profile Green
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -758,7 +758,7 @@ function Select-Profile {
 # ═══════════════════════════════════════════════════════════════════
 function Run-Questionnaire {
     Print-Section "Advanced Questionnaire"
-    Write-ColorLine "  Answer 8 questions to build a custom hardening profile." DarkGray
+    Write-ColorLine "  Answer 8 questions to build a custom hardening profile." DarkYellow
     Write-Host ""
 
     $c = Prompt-Choice "1. What is your primary threat model?" @(
@@ -845,7 +845,7 @@ function Select-OutputMode {
         2 { $script:OutputMode = "report" }
     }
     Write-Host ""
-    Write-Host "  Output mode: " -NoNewline; Write-ColorLine $script:OutputMode White
+    Write-Host "  Output mode: " -NoNewline; Write-ColorLine $script:OutputMode Green
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2318,7 +2318,7 @@ function Run-Uninstall {
     # Load state
     $hasState = Read-State
     if (-not $hasState) {
-        Write-ColorLine "  No state file found. Detecting applied modules..." Yellow
+        Write-ColorLine "  No state file found. Detecting applied modules..." Red
         Detect-AppliedModules
     }
 
@@ -2332,25 +2332,25 @@ function Run-Uninstall {
     if ($hasState) {
         Write-Host "  State file found: " -NoNewline; Write-ColorLine $script:StateFileSystem Green
     }
-    Write-Host "  Applied modules: " -NoNewline; Write-ColorLine $applied.Count White
+    Write-Host "  Applied modules: " -NoNewline; Write-ColorLine $applied.Count Green
     if ($script:StateData.last_run) {
-        Write-Host "  Last run: " -NoNewline; Write-ColorLine $script:StateData.last_run White
+        Write-Host "  Last run: " -NoNewline; Write-ColorLine $script:StateData.last_run Green
     }
     Write-Host ""
 
     # Package question
     if ($script:StateData.packages_installed.Count -gt 0) {
-        Write-ColorLine "  The following tools were installed by the hardening script:" White
+        Write-ColorLine "  The following tools were installed by the hardening script:" Green
         Write-Host "    " -NoNewline
-        Write-ColorLine ($script:StateData.packages_installed -join ", ") Cyan
+        Write-ColorLine ($script:StateData.packages_installed -join ", ") Green
         Write-Host ""
-        Write-Host "  Remove installed tools as well?" -ForegroundColor White
-        Write-Host "  " -NoNewline; Write-Color "[Y]" Cyan; Write-Host " Yes — uninstall all tools listed above"
-        Write-Host "  " -NoNewline; Write-Color "[N]" Cyan; Write-Host " No  — keep tools, only revert settings"
-        Write-Host "  " -NoNewline; Write-Color "[Q]" DarkGray; Write-Host " Quit"
+        Write-Host "  Remove installed tools as well?" -ForegroundColor Green
+        Write-Host "  " -NoNewline; Write-Color "[Y] Green; Write-Host " Yes — uninstall all tools listed above"
+        Write-Host "  " -NoNewline; Write-Color "[N] Green; Write-Host " No  — keep tools, only revert settings"
+        Write-Host "  " -NoNewline; Write-Color "[Q]" DarkYellow; Write-Host " Quit"
         Write-Host ""
         while ($true) {
-            Write-Host "  Choice: " -NoNewline -ForegroundColor White
+            Write-Host "  Choice: " -NoNewline -ForegroundColor Green
             $pkgChoice = Read-Host
             switch ($pkgChoice) {
                 { $_ -eq "Y" -or $_ -eq "y" } { $script:RemovePackages = $true; break }
@@ -2367,7 +2367,7 @@ function Run-Uninstall {
     $pkgMsg = if ($script:RemovePackages -and $script:StateData.packages_installed.Count -gt 0) {
         " and remove $($script:StateData.packages_installed.Count) packages"
     } else { "" }
-    Write-Host "  " -NoNewline; Write-Color "⚠" Yellow
+    Write-Host "  " -NoNewline; Write-Color "⚠" Red
     Write-Host "  This will revert $($applied.Count) modules$pkgMsg."
     if (-not (Prompt-YN "Proceed?")) {
         Write-Host "  Aborted."
@@ -2396,7 +2396,7 @@ function Run-Modify {
     # Load state
     $hasState = Read-State
     if (-not $hasState) {
-        Write-ColorLine "  No state file found. Detecting applied modules..." Yellow
+        Write-ColorLine "  No state file found. Detecting applied modules..." Red
         Detect-AppliedModules
     }
 
@@ -2408,7 +2408,7 @@ function Run-Modify {
 
     if ($addCount -eq 0 -and $removeCount -eq 0) {
         Write-Host ""
-        Write-ColorLine "  No changes selected." DarkGray
+        Write-ColorLine "  No changes selected." DarkYellow
         return
     }
 
@@ -2452,20 +2452,20 @@ function Run-Modify {
 
 function Print-UninstallSummary {
     Write-Host ""
-    Write-ColorLine "═══════════════════════════════════════════════════" White
-    Write-ColorLine "  Uninstall Complete" White
-    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-ColorLine "═══════════════════════════════════════════════════" Green
+    Write-ColorLine "  Uninstall Complete" Green
+    Write-ColorLine "═══════════════════════════════════════════════════" Green
     Write-Host ""
     Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " Reverted:   $($script:CountReverted)"
-    Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " Skipped:    $($script:CountSkipped) " -NoNewline; Write-ColorLine "(nothing to revert)" DarkGray
+    Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " Skipped:    $($script:CountSkipped) " -NoNewline; Write-ColorLine "(nothing to revert)" DarkYellow
     Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " Failed:     $($script:CountFailed)" -NoNewline
     if ($script:CountFailed -gt 0) { Write-ColorLine " (see log)" Red } else { Write-Host "" }
-    Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " Manual:     $($script:CountManual)" -NoNewline
-    if ($script:CountManual -gt 0) { Write-ColorLine " (see below)" Yellow } else { Write-Host "" }
+    Write-Host "  " -NoNewline; Write-Color "☐" Red; Write-Host " Manual:     $($script:CountManual)" -NoNewline
+    if ($script:CountManual -gt 0) { Write-ColorLine " (see below)" Red } else { Write-Host "" }
     Write-Host ""
     Write-Host "  State files:"
-    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkGray
-    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkGray
+    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkYellow
+    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkYellow
     Write-Host ""
 
     if ($script:ManualSteps.Count -gt 0) {
@@ -2475,9 +2475,9 @@ function Print-UninstallSummary {
 
 function Print-ModifySummary {
     Write-Host ""
-    Write-ColorLine "═══════════════════════════════════════════════════" White
-    Write-ColorLine "  Modify Complete" White
-    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-ColorLine "═══════════════════════════════════════════════════" Green
+    Write-ColorLine "  Modify Complete" Green
+    Write-ColorLine "═══════════════════════════════════════════════════" Green
     Write-Host ""
     if ($script:CountApplied -gt 0) {
         Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " Applied:    $($script:CountApplied)"
@@ -2492,12 +2492,12 @@ function Print-ModifySummary {
         Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " Failed:     $($script:CountFailed)"
     }
     if ($script:CountManual -gt 0) {
-        Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " Manual:     $($script:CountManual)"
+        Write-Host "  " -NoNewline; Write-Color "☐" Red; Write-Host " Manual:     $($script:CountManual)"
     }
     Write-Host ""
     Write-Host "  State files:"
-    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkGray
-    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkGray
+    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkYellow
+    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkYellow
     Write-Host ""
 
     if ($script:ManualSteps.Count -gt 0) {
@@ -2510,22 +2510,22 @@ function Print-ModifySummary {
 # ═══════════════════════════════════════════════════════════════════
 function Print-Summary {
     Write-Host ""
-    Write-ColorLine "═══════════════════════════════════════════════════" White
-    Write-ColorLine "  Hardening Complete" White
-    Write-ColorLine "═══════════════════════════════════════════════════" White
+    Write-ColorLine "═══════════════════════════════════════════════════" Green
+    Write-ColorLine "  Hardening Complete" Green
+    Write-ColorLine "═══════════════════════════════════════════════════" Green
     Write-Host ""
     Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " Applied:    $($script:CountApplied)"
-    Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " Skipped:    $($script:CountSkipped) " -NoNewline; Write-ColorLine "(already applied)" DarkGray
+    Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " Skipped:    $($script:CountSkipped) " -NoNewline; Write-ColorLine "(already applied)" DarkYellow
     Write-Host "  " -NoNewline; Write-Color "✗" Red;   Write-Host " Failed:     $($script:CountFailed)" -NoNewline
     if ($script:CountFailed -gt 0) { Write-ColorLine " (see log)" Red } else { Write-Host "" }
-    Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " Manual:     $($script:CountManual)" -NoNewline
-    if ($script:CountManual -gt 0) { Write-ColorLine " (see below)" Yellow } else { Write-Host "" }
+    Write-Host "  " -NoNewline; Write-Color "☐" Red; Write-Host " Manual:     $($script:CountManual)" -NoNewline
+    if ($script:CountManual -gt 0) { Write-ColorLine " (see below)" Red } else { Write-Host "" }
     Write-Host ""
     Write-Host "  Profile: $($script:Profile) | OS: Windows | Date: $($script:DATE)"
     Write-Host ""
     Write-Host "  State files:"
-    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkGray
-    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkGray
+    Write-Host "    System:  " -NoNewline; Write-ColorLine $script:StateFileSystem DarkYellow
+    Write-Host "    Project: " -NoNewline; Write-ColorLine $script:StateFileProject DarkYellow
     Write-Host ""
 }
 
@@ -2533,7 +2533,7 @@ function Print-ManualChecklist {
     if ($script:ManualSteps.Count -gt 0) {
         Print-Section "Manual Steps Remaining"
         for ($i = 0; $i -lt $script:ManualSteps.Count; $i++) {
-            Write-Host "  " -NoNewline; Write-Color "☐" Yellow; Write-Host " $($i+1). $($script:ManualSteps[$i])"
+            Write-Host "  " -NoNewline; Write-Color "☐" Red; Write-Host " $($i+1). $($script:ManualSteps[$i])"
             Write-Host ""
         }
     }
@@ -2586,7 +2586,7 @@ function Write-Log {
     $log += ""
     $log += $script:LogEntries
     $log | Out-File -FilePath $script:LogFile -Encoding UTF8
-    Write-ColorLine "  Log written to: $($script:LogFile)" DarkGray
+    Write-ColorLine "  Log written to: $($script:LogFile)" DarkYellow
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -2635,7 +2635,7 @@ function Test-CleanTargetAvailable {
 # ═══════════════════════════════════════════════════════════════════
 function Show-CleanPicker {
     Print-Section "Select Categories"
-    Write-ColorLine "  Toggle categories, then press Enter to continue." DarkGray
+    Write-ColorLine "  Toggle categories, then press Enter to continue." DarkYellow
     Write-Host ""
 
     # Start with all selected
@@ -2650,14 +2650,14 @@ function Show-CleanPicker {
             $mark = " "
             if ($script:CleanCategories[$cat]) { $mark = "*" }
             Write-Host "  " -NoNewline
-            Write-Color "[$num]" Cyan
+            Write-Color "[$num] Green
             Write-Host " [$mark] $($script:CleanCatNames[$cat])"
         }
         Write-Host ""
-        Write-Host "  " -NoNewline; Write-Color "[A]" Cyan; Write-Host " Select All    " -NoNewline
-        Write-Color "[N]" Cyan; Write-Host " Select None"
+        Write-Host "  " -NoNewline; Write-Color "[A] Green; Write-Host " Select All    " -NoNewline
+        Write-Color "[N] Green; Write-Host " Select None"
         Write-Host ""
-        Write-Host "  Toggle (1-7, A, N) or Enter to continue: " -NoNewline -ForegroundColor White
+        Write-Host "  Toggle (1-7, A, N) or Enter to continue: " -NoNewline -ForegroundColor Green
         $input = Read-Host
 
         if ([string]::IsNullOrEmpty($input)) {
@@ -2713,7 +2713,7 @@ function Show-CleanPicker {
 # ═══════════════════════════════════════════════════════════════════
 function Show-CleanDrilldown {
     Write-Host ""
-    Write-Host "  Drill into individual targets? (y/N): " -NoNewline -ForegroundColor White
+    Write-Host "  Drill into individual targets? (y/N): " -NoNewline -ForegroundColor Green
     $drill = Read-Host
     if ($drill.ToLower() -ne 'y') { return }
 
@@ -2729,7 +2729,7 @@ function Show-CleanDrilldown {
         if ($avail.Count -eq 0) { continue }
 
         Write-Host ""
-        Write-ColorLine "  -- $($script:CleanCatNames[$cat]) --" White
+        Write-ColorLine "  -- $($script:CleanCatNames[$cat]) --" Green
 
         while ($true) {
             for ($i = 0; $i -lt $avail.Count; $i++) {
@@ -2738,11 +2738,11 @@ function Show-CleanDrilldown {
                 $mark = " "
                 if ($script:CleanTargets.ContainsKey($t) -and $script:CleanTargets[$t]) { $mark = "*" }
                 Write-Host "    " -NoNewline
-                Write-Color "[$num]" Cyan
+                Write-Color "[$num] Green
                 Write-Host " [$mark] $($script:CleanTargetNames[$t])"
             }
             Write-Host ""
-            Write-Host "    Toggle (1-$($avail.Count)) or Enter to keep: " -NoNewline -ForegroundColor White
+            Write-Host "    Toggle (1-$($avail.Count)) or Enter to keep: " -NoNewline -ForegroundColor Green
             $input = Read-Host
 
             if ([string]::IsNullOrEmpty($input)) { break }
@@ -3058,7 +3058,7 @@ function Show-CleanPreview {
 
     foreach ($target in $orderedTargets) {
         Write-Host "  " -NoNewline
-        Write-Color ([char]0x27F3).ToString() Yellow
+        Write-Color ([char]0x27F3).ToString() Red
         Write-Host " Scanning $($script:CleanTargetNames[$target])..." -NoNewline
         Invoke-ScanTarget $target
         Write-Host "`r" -NoNewline
@@ -3068,11 +3068,11 @@ function Show-CleanPreview {
 
     $totalFiles = 0; $totalBytes = [long]0
     Write-Host ""
-    Write-ColorLine "  +----------------------------------------------------------+" White
-    Write-ColorLine "  |                   CLEANING PREVIEW                        |" White
-    Write-ColorLine "  +----------------------------------------------------------+" White
-    Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  Target","Files","Size","Status") -ForegroundColor White
-    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
+    Write-ColorLine "  +----------------------------------------------------------+" Green
+    Write-ColorLine "  |                   CLEANING PREVIEW                        |" Green
+    Write-ColorLine "  +----------------------------------------------------------+" Green
+    Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  Target","Files","Size","Status") -ForegroundColor Green
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkYellow
 
     foreach ($target in $orderedTargets) {
         $files = if ($script:CleanScanFiles.ContainsKey($target)) { $script:CleanScanFiles[$target] } else { 0 }
@@ -3094,7 +3094,7 @@ function Show-CleanPreview {
         $fileStr = if ($files -eq 0) { [string]([char]0x2014) } else { "$files" }
 
         $color = "White"
-        if ($status -eq "Empty") { $color = "DarkGray" }
+        if ($status -eq "Empty") { $color = "DarkYellow" }
 
         Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  $($script:CleanTargetNames[$target])",$fileStr,$sizeStr,$status) -ForegroundColor $color
 
@@ -3102,9 +3102,9 @@ function Show-CleanPreview {
         $totalBytes += $bytes
     }
 
-    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
-    Write-Host ("  {0,-34} {1,8} {2,10}" -f "  TOTAL","$totalFiles","$(Format-CleanBytes $totalBytes)") -ForegroundColor White
-    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkYellow
+    Write-Host ("  {0,-34} {1,8} {2,10}" -f "  TOTAL","$totalFiles","$(Format-CleanBytes $totalBytes)") -ForegroundColor Green
+    Write-ColorLine "  +----------------------------------------------------------+" Green
 
     $script:CleanTotalScanFiles = $totalFiles
     $script:CleanTotalScanBytes = $totalBytes
@@ -3243,7 +3243,7 @@ function Invoke-CleanUserLogs {
 
 function Invoke-CleanChrome {
     if (Test-BrowserRunning "chrome") {
-        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Yellow; Write-Host "  Chrome is running -- close it first to clean"
+        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Red; Write-Host "  Chrome is running -- close it first to clean"
         Write-CleanLogEntry "SKIP" "Chrome (browser running)"
         $script:CleanResultFiles['chrome'] = 0; $script:CleanResultBytes['chrome'] = 0; $script:CleanResultStatus['chrome'] = "fail"
         return
@@ -3256,7 +3256,7 @@ function Invoke-CleanChrome {
 
 function Invoke-CleanFirefox {
     if (Test-BrowserRunning "firefox") {
-        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Yellow; Write-Host "  Firefox is running -- close it first to clean"
+        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Red; Write-Host "  Firefox is running -- close it first to clean"
         Write-CleanLogEntry "SKIP" "Firefox (browser running)"
         $script:CleanResultFiles['firefox'] = 0; $script:CleanResultBytes['firefox'] = 0; $script:CleanResultStatus['firefox'] = "fail"
         return
@@ -3281,7 +3281,7 @@ function Invoke-CleanFirefox {
 
 function Invoke-CleanEdge {
     if (Test-BrowserRunning "msedge") {
-        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Yellow; Write-Host "  Edge is running -- close it first to clean"
+        Write-Host "  " -NoNewline; Write-Color ([char]0x26A0).ToString() Red; Write-Host "  Edge is running -- close it first to clean"
         Write-CleanLogEntry "SKIP" "Edge (browser running)"
         $script:CleanResultFiles['edge'] = 0; $script:CleanResultBytes['edge'] = 0; $script:CleanResultStatus['edge'] = "fail"
         return
@@ -3512,7 +3512,7 @@ function Invoke-CleanExecute {
     foreach ($target in $orderedTargets) {
         $current++
         Write-Host "  " -NoNewline
-        Write-Color ([char]0x27F3).ToString() Yellow
+        Write-Color ([char]0x27F3).ToString() Red
         Write-Host " [$current/$total] $($script:CleanTargetNames[$target])..." -NoNewline
 
         if ($cleanFuncMap.ContainsKey($target)) {
@@ -3540,7 +3540,7 @@ function Invoke-CleanExecute {
             "skip" {
                 Write-Host "  " -NoNewline; Write-Color ([char]0x25CB).ToString() Green
                 Write-Host " [$current/$total] $($script:CleanTargetNames[$target]) " -NoNewline
-                Write-ColorLine "(nothing to clean)" DarkGray
+                Write-ColorLine "(nothing to clean)" DarkYellow
             }
             "fail" {
                 Write-Host "  " -NoNewline; Write-Color ([char]0x2717).ToString() Red
@@ -3548,9 +3548,9 @@ function Invoke-CleanExecute {
                 Write-ColorLine "(failed)" Red
             }
             "partial" {
-                Write-Host "  " -NoNewline; Write-Color ([char]0x25D0).ToString() Yellow
+                Write-Host "  " -NoNewline; Write-Color ([char]0x25D0).ToString() Red
                 Write-Host " [$current/$total] $($script:CleanTargetNames[$target])$freedStr " -NoNewline
-                Write-ColorLine "(partial)" Yellow
+                Write-ColorLine "(partial)" Red
             }
         }
     }
@@ -3598,11 +3598,11 @@ function Show-CleanSummary {
     $totalFiles = 0; $totalBytes = [long]0
 
     Write-Host ""
-    Write-ColorLine "  +----------------------------------------------------------+" White
-    Write-ColorLine "  |                  CLEANING SUMMARY                         |" White
-    Write-ColorLine "  +----------------------------------------------------------+" White
-    Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  Target","Removed","Freed","Status") -ForegroundColor White
-    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
+    Write-ColorLine "  +----------------------------------------------------------+" Green
+    Write-ColorLine "  |                  CLEANING SUMMARY                         |" Green
+    Write-ColorLine "  +----------------------------------------------------------+" Green
+    Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  Target","Removed","Freed","Status") -ForegroundColor Green
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkYellow
 
     foreach ($target in $orderedTargets) {
         $files = if ($script:CleanResultFiles.ContainsKey($target)) { $script:CleanResultFiles[$target] } else { 0 }
@@ -3615,9 +3615,9 @@ function Show-CleanSummary {
         $statusStr = ""; $color = "White"
         switch ($status) {
             "pass"    { $statusStr = "PASS";    $color = "Green" }
-            "skip"    { $statusStr = "SKIP";    $color = "DarkGray" }
+            "skip"    { $statusStr = "SKIP";    $color = "DarkYellow" }
             "fail"    { $statusStr = "FAIL";    $color = "Red" }
-            "partial" { $statusStr = "PARTIAL"; $color = "Yellow" }
+            "partial" { $statusStr = "PARTIAL"; $color = "DarkYellow" }
         }
 
         Write-Host ("  {0,-34} {1,8} {2,10} {3,8}" -f "  $($script:CleanTargetNames[$target])",$fileStr,$sizeStr,$statusStr) -ForegroundColor $color
@@ -3626,9 +3626,9 @@ function Show-CleanSummary {
         $totalBytes += $bytes
     }
 
-    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkGray
-    Write-Host ("  {0,-34} {1,8} {2,10}" -f "  TOTAL","$totalFiles","$(Format-CleanBytes $totalBytes)") -ForegroundColor White
-    Write-ColorLine "  +----------------------------------------------------------+" White
+    Write-ColorLine "  ----  --------------------------------  --------  ----------  --------" DarkYellow
+    Write-Host ("  {0,-34} {1,8} {2,10}" -f "  TOTAL","$totalFiles","$(Format-CleanBytes $totalBytes)") -ForegroundColor Green
+    Write-ColorLine "  +----------------------------------------------------------+" Green
     Write-Host ""
 
     # Score bar
@@ -3637,7 +3637,7 @@ function Show-CleanSummary {
 
     $color = "Red"
     if ($pct -ge 80) { $color = "Green" }
-    elseif ($pct -ge 50) { $color = "Yellow" }
+    elseif ($pct -ge 50) { $color = "DarkYellow" }
 
     $width = 20
     $filled = [int](($pct * $width) / 100)
@@ -3645,7 +3645,7 @@ function Show-CleanSummary {
     $barFull = [string]::new([char]0x2588, $filled)
     $barEmpty = [string]::new([char]0x2591, $empty)
 
-    Write-Host "  Cleanliness Score: " -NoNewline -ForegroundColor White
+    Write-Host "  Cleanliness Score: " -NoNewline -ForegroundColor Green
     Write-Color "$pct/100" $color
     Write-Host " [" -NoNewline
     Write-Color $barFull $color
@@ -3674,7 +3674,7 @@ function Write-CleanLog {
     }
 
     $logContent | Out-File -FilePath $script:CleanLogFile -Encoding UTF8 -Append
-    Write-ColorLine "  Log: $($script:CleanLogFile)" DarkGray
+    Write-ColorLine "  Log: $($script:CleanLogFile)" DarkYellow
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -3682,14 +3682,14 @@ function Write-CleanLog {
 # ═══════════════════════════════════════════════════════════════════
 function Invoke-Clean {
     Write-Host ""
-    Write-ColorLine "+-------------------------------------------------+" Cyan
-    Write-Host "|" -ForegroundColor Cyan -NoNewline
-    Write-Host "          SYSTEM CLEANER v$($script:VERSION)                 " -ForegroundColor White -NoNewline
-    Write-ColorLine "|" Cyan
-    Write-Host "|" -ForegroundColor Cyan -NoNewline
+    Write-ColorLine "+-------------------------------------------------+ Green
+    Write-Host "|" -ForegroundColor Green -NoNewline
+    Write-Host "          SYSTEM CLEANER v$($script:VERSION)                 " -ForegroundColor Green -NoNewline
+    Write-ColorLine "| Green
+    Write-Host "|" -ForegroundColor Green -NoNewline
     Write-Host "          Windows                                  " -NoNewline
-    Write-ColorLine "|" Cyan
-    Write-ColorLine "+-------------------------------------------------+" Cyan
+    Write-ColorLine "| Green
+    Write-ColorLine "+-------------------------------------------------+ Green
 
     Show-CleanPicker
     Show-CleanDrilldown
@@ -3698,17 +3698,17 @@ function Invoke-Clean {
     # Dry-run: show preview and exit
     if ($DryRun) {
         Write-Host ""
-        Write-Host "  " -NoNewline; Write-Color "[DRY RUN]" Cyan; Write-Host " Preview only -- no files deleted."
+        Write-Host "  " -NoNewline; Write-Color "[DRY RUN] Green; Write-Host " Preview only -- no files deleted."
         return
     }
 
     # Confirmation
     if (-not $Force) {
         Write-Host ""
-        Write-Host "  Proceed with cleaning? (y/N): " -NoNewline -ForegroundColor White
+        Write-Host "  Proceed with cleaning? (y/N): " -NoNewline -ForegroundColor Green
         $confirm = Read-Host
         if ($confirm.ToLower() -ne 'y') {
-            Write-ColorLine "  Cancelled." DarkGray
+            Write-ColorLine "  Cancelled." DarkYellow
             return
         }
     }
@@ -3718,7 +3718,7 @@ function Invoke-Clean {
     Write-CleanLog
 
     Write-Host ""
-    Write-ColorLine "  Re-run with -Clean anytime -- safe to repeat." DarkGray
+    Write-ColorLine "  Re-run with -Clean anytime -- safe to repeat." DarkYellow
     Write-Host ""
 }
 
@@ -3799,7 +3799,7 @@ function Main {
             Build-ModuleList
 
             Write-Host ""
-            Write-Host "  Modules to apply: " -NoNewline; Write-ColorLine $script:TotalModules White
+            Write-Host "  Modules to apply: " -NoNewline; Write-ColorLine $script:TotalModules Green
             Write-Host ""
             if (-not (Prompt-YN "Proceed with hardening?")) {
                 Write-Host "Aborted."
@@ -3822,7 +3822,7 @@ function Main {
             Write-Log
 
             Write-Host ""
-            Write-ColorLine "  Re-run this script anytime — it's safe to repeat." DarkGray
+            Write-ColorLine "  Re-run this script anytime — it's safe to repeat." DarkYellow
             Write-Host ""
         }
     }
