@@ -420,6 +420,42 @@ run_as_user() {
     "$@"
 }
 
+# Modules that require root for at least one command
+declare -A ROOT_MODULES=(
+    [firewall-inbound]=1 [firewall-stealth]=1 [dns-secure]=1
+    [auto-updates]=1 [guest-disable]=1 [hostname-scrub]=1
+    [telemetry-disable]=1 [kernel-sysctl]=1 [apparmor-enforce]=1
+    [bluetooth-disable]=1
+)
+
+needs_sudo() {
+    # Clean mode with system targets needs root
+    if [[ "$CLEAN_MODE" == true ]]; then
+        if [[ "${CLEAN_CATEGORIES[system-caches]}" == "1" ]]; then
+            return 0
+        fi
+        return 1
+    fi
+
+    # Check if any enabled module needs root
+    for mod in "${ENABLED_MODULES[@]}"; do
+        if [[ -n "${ROOT_MODULES[$mod]:-}" ]]; then
+            return 0
+        fi
+    done
+
+    # Linux package installs need root
+    if [[ "$OS" == "linux" ]]; then
+        for mod in "${ENABLED_MODULES[@]}"; do
+            case "$mod" in
+                firewall-outbound|monitoring-tools|metadata-strip) return 0 ;;
+            esac
+        done
+    fi
+
+    return 1
+}
+
 # ═══════════════════════════════════════════════════════════════════
 # PACKAGE INSTALL HELPERS
 # ═══════════════════════════════════════════════════════════════════
@@ -6160,6 +6196,7 @@ run_clean() {
 
     clean_picker
     clean_drilldown
+    needs_sudo && acquire_sudo
     clean_preview
 
     # Dry-run: show preview and exit
@@ -6349,6 +6386,7 @@ main() {
     if [[ "$AUTO_MODE" == true ]]; then
         PROFILE="$AUTO_PROFILE"
         build_module_list
+        needs_sudo && acquire_sudo
 
         # Pre-change analysis (smart-skip)
         local pca_rc=0
@@ -6377,11 +6415,13 @@ main() {
     # ── Interactive modes ──
     case "$RUN_MODE" in
         uninstall)
+            acquire_sudo
             run_uninstall
             write_log
             print_manual_checklist
             ;;
         modify)
+            acquire_sudo
             run_modify
             print_modify_summary
             print_manual_checklist
@@ -6392,11 +6432,13 @@ main() {
 
             # Profile selection may have switched mode
             if [[ "$RUN_MODE" == "uninstall" ]]; then
+                acquire_sudo
                 run_uninstall
                 write_log
                 print_manual_checklist
                 return
             elif [[ "$RUN_MODE" == "modify" ]]; then
+                acquire_sudo
                 run_modify
                 print_modify_summary
                 print_manual_checklist
@@ -6406,6 +6448,7 @@ main() {
 
             select_output_mode
             build_module_list
+            needs_sudo && acquire_sudo
 
             # Pre-change analysis replaces the old "Proceed?" prompt
             local pca_rc=0
