@@ -91,6 +91,12 @@ CLEAN_SCHEDULED=false
 CLEAN_SCHEDULE_SETUP=false
 CLEAN_UNSCHEDULE=false
 
+# Scheduled clean config (loaded from config file)
+SCHED_ENABLED=""
+SCHED_SCHEDULE=""
+SCHED_NOTIFY=""
+declare -a SCHED_CATEGORIES=()
+
 # Clean log
 if [[ -d "${SCRIPT_DIR}/../audits" ]]; then
     CLEAN_LOG_FILE="${SCRIPT_DIR}/../audits/clean-log-${DATE}.txt"
@@ -709,17 +715,36 @@ load_scheduled_config() {
         return 1
     fi
 
-    # Validate JSON structure
-    if ! python3 -c "import json; json.load(open('$config_file'))" 2>/dev/null; then
+    # Parse JSON once and extract all values safely using sys.argv
+    local parse_output
+    parse_output=$(python3 - "$config_file" 2>/dev/null << 'PYEOF'
+import sys, json
+try:
+    with open(sys.argv[1]) as f:
+        config = json.load(f)
+    print(config['enabled'])
+    print(config['schedule'])
+    print(config['notify'])
+    print(' '.join(config['categories']))
+except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
+    sys.exit(1)
+PYEOF
+    ) || {
         log "ERROR: Invalid config JSON at $config_file"
         return 1
-    fi
+    }
 
-    # Extract values
-    SCHED_ENABLED=$(python3 -c "import json; print(json.load(open('$config_file'))['enabled'])")
-    SCHED_SCHEDULE=$(python3 -c "import json; print(json.load(open('$config_file'))['schedule'])")
-    SCHED_NOTIFY=$(python3 -c "import json; print(json.load(open('$config_file'))['notify'])")
-    SCHED_CATEGORIES=($(python3 -c "import json; print(' '.join(json.load(open('$config_file'))['categories']))"))
+    # Extract values from output (one per line)
+    local line_num=0
+    while IFS= read -r line; do
+        case $line_num in
+            0) SCHED_ENABLED="$line" ;;
+            1) SCHED_SCHEDULE="$line" ;;
+            2) SCHED_NOTIFY="$line" ;;
+            3) SCHED_CATEGORIES=($line) ;;
+        esac
+        ((line_num++))
+    done <<< "$parse_output"
 
     return 0
 }
@@ -734,23 +759,30 @@ save_scheduled_config() {
 
     mkdir -p "$(dirname "$SCHED_CLEAN_CONFIG_USER")" 2>/dev/null
 
-    local cat_json=""
-    for cat in "${categories[@]}"; do
-        cat_json+="\"$cat\","
-    done
-    cat_json="${cat_json%,}"  # Remove trailing comma
+    # Use Python json.dump() for safe JSON generation
+    python3 - "$SCHED_CLEAN_CONFIG_USER" "$enabled" "$schedule" "$custom_interval" "$notify" "${categories[@]}" << 'PYEOF'
+import sys, json
 
-    cat > "$SCHED_CLEAN_CONFIG_USER" <<EOCONFIG
-{
-  "enabled": $enabled,
-  "schedule": "$schedule",
-  "custom_interval": "$custom_interval",
-  "categories": [$cat_json],
-  "notify": $notify,
-  "last_run": "",
-  "version": "1.0"
+config_file = sys.argv[1]
+enabled = sys.argv[2] == "true"
+schedule = sys.argv[3]
+custom_interval = sys.argv[4]
+notify = sys.argv[5] == "true"
+categories = sys.argv[6:]
+
+config = {
+    "enabled": enabled,
+    "schedule": schedule,
+    "custom_interval": custom_interval,
+    "categories": categories,
+    "notify": notify,
+    "last_run": "",
+    "version": "1.0"
 }
-EOCONFIG
+
+with open(config_file, 'w') as f:
+    json.dump(config, f, indent=2)
+PYEOF
 
     # Also save to project directory as backup
     mkdir -p "$(dirname "$SCHED_CLEAN_CONFIG_PROJECT")" 2>/dev/null
