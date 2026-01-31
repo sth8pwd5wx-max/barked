@@ -87,6 +87,9 @@ AUTO_PROFILE=""              # profile name for --auto mode
 # Clean mode
 CLEAN_MODE=false
 CLEAN_FORCE=false
+CLEAN_SCHEDULED=false
+CLEAN_SCHEDULE_SETUP=false
+CLEAN_UNSCHEDULE=false
 
 # Clean log
 if [[ -d "${SCRIPT_DIR}/../audits" ]]; then
@@ -4871,6 +4874,15 @@ parse_args() {
             --force)
                 CLEAN_FORCE=true
                 ;;
+            --clean-scheduled)
+                CLEAN_SCHEDULED=true
+                ;;
+            --clean-schedule)
+                CLEAN_SCHEDULE_SETUP=true
+                ;;
+            --clean-unschedule)
+                CLEAN_UNSCHEDULE=true
+                ;;
             --update)
                 run_update
                 ;;
@@ -4895,6 +4907,9 @@ parse_args() {
                 echo "  --quiet, -q            Suppress interactive output (requires --auto or --audit)"
                 echo "  --accept-advanced      Accept all advanced hardening prompts"
                 echo "  --force                Skip confirmation prompt (use with --clean)"
+                echo "  --clean-scheduled      Execute a scheduled clean run"
+                echo "  --clean-schedule       Set up scheduled cleaning"
+                echo "  --clean-unschedule     Remove scheduled cleaning"
                 echo "  --version, -v          Show version and exit"
                 echo "  --update               Update barked to the latest version"
                 echo "  --uninstall-self       Remove barked from system PATH"
