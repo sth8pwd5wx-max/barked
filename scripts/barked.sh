@@ -919,7 +919,168 @@ setup_scheduled_clean() {
 
 # Stub for Task 4
 install_scheduler() {
-    echo "  ${BROWN}Scheduler installation will be implemented in Task 4${NC}"
+    local schedule="$1"
+    local custom_interval="$2"
+
+    echo ""
+    echo -e "  ${BOLD}Installing scheduler...${NC}"
+
+    # Get barked path once
+    local barked_path
+    barked_path="$(command -v barked 2>/dev/null || echo "$0")"
+    barked_path="$(cd "$(dirname "$barked_path")" && pwd)/$(basename "$barked_path")"
+
+    # Detect OS and call appropriate installer
+    case "$OS" in
+        macos)
+            install_scheduler_macos "$schedule" "$custom_interval" "$barked_path"
+            ;;
+        linux)
+            install_scheduler_linux "$schedule" "$custom_interval" "$barked_path"
+            ;;
+        windows)
+            echo -e "  ${BROWN}Windows scheduler not implemented in this script${NC}"
+            return 1
+            ;;
+        *)
+            echo -e "  ${RED}Unsupported OS: $OS${NC}"
+            return 1
+            ;;
+    esac
+}
+
+install_scheduler_macos() {
+    local schedule="$1"
+    local custom_interval="$2"
+    local barked_path="$3"
+
+    # Plist path
+    local plist_path="$HOME/Library/LaunchAgents/com.barked.scheduled-clean.plist"
+
+    # Create LaunchAgents directory if needed
+    mkdir -p "$HOME/Library/LaunchAgents"
+
+    # Escape XML entities in barked_path
+    local barked_path_xml="${barked_path//&/&amp;}"
+    barked_path_xml="${barked_path_xml//</&lt;}"
+    barked_path_xml="${barked_path_xml//>/&gt;}"
+    barked_path_xml="${barked_path_xml//\"/&quot;}"
+    barked_path_xml="${barked_path_xml//\'/&apos;}"
+
+    # Determine schedule interval
+    local interval_xml=""
+    case "$schedule" in
+        daily)
+            interval_xml="    <dict>
+      <key>Hour</key>
+      <integer>2</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>"
+            ;;
+        weekly)
+            interval_xml="    <dict>
+      <key>Weekday</key>
+      <integer>0</integer>
+      <key>Hour</key>
+      <integer>2</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>"
+            ;;
+        custom)
+            # For custom, use daily at 2 AM (user can customize interval via launchd plist)
+            echo -e "  ${BROWN}Warning: Custom schedules not fully supported on macOS${NC}"
+            echo -e "  ${BROWN}Using daily schedule. Edit plist manually: $plist_path${NC}"
+            interval_xml="    <dict>
+      <key>Hour</key>
+      <integer>2</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>"
+            ;;
+    esac
+
+    # Create plist
+    cat > "$plist_path" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.barked.scheduled-clean</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$barked_path_xml</string>
+    <string>--clean-scheduled</string>
+  </array>
+  <key>StartCalendarInterval</key>
+$interval_xml
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/tmp/barked-clean.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/barked-clean-error.log</string>
+</dict>
+</plist>
+EOF
+
+    # Check if plist was created successfully
+    if [[ ! -f "$plist_path" ]]; then
+        echo -e "  ${RED}✗ Failed to create plist file${NC}"
+        return 1
+    fi
+
+    # Unload existing job if present, then load
+    launchctl unload "$plist_path" 2>/dev/null || true
+    if launchctl load "$plist_path" 2>/dev/null; then
+        echo -e "  ${GREEN}✓ macOS launchd job installed${NC}"
+        echo "    Job: $plist_path"
+    else
+        echo -e "  ${RED}✗ Failed to load launchd job${NC}"
+        return 1
+    fi
+}
+
+install_scheduler_linux() {
+    local schedule="$1"
+    local custom_interval="$2"
+    local barked_path="$3"
+
+    # Determine cron schedule
+    local cron_schedule
+    case "$schedule" in
+        daily)
+            cron_schedule="0 2 * * *"
+            ;;
+        weekly)
+            cron_schedule="0 2 * * 0"
+            ;;
+        custom)
+            cron_schedule="$custom_interval"
+            ;;
+    esac
+
+    # Build cron line
+    local cron_line="$cron_schedule $barked_path --clean-scheduled"
+
+    # Check if cron job already exists
+    if crontab -l 2>/dev/null | grep -F "$barked_path --clean-scheduled" >/dev/null; then
+        # Remove existing entry
+        crontab -l 2>/dev/null | grep -vF "$barked_path --clean-scheduled" | crontab -
+    fi
+
+    # Add new cron job
+    (crontab -l 2>/dev/null; echo "$cron_line") | crontab -
+
+    if [[ $? -eq 0 ]]; then
+        echo -e "  ${GREEN}✓ Cron job installed${NC}"
+        echo "    Schedule: $cron_schedule"
+    else
+        echo -e "  ${RED}✗ Failed to install cron job${NC}"
+        return 1
+    fi
 }
 
 # ═══════════════════════════════════════════════════════════════════
