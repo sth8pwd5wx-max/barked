@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════
 # install.sh — Barked installer for macOS / Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
+# Usage:
+#   bash install.sh              # Install to ~/.local/bin (recommended)
+#   sudo bash install.sh         # Install to /usr/local/bin (system-wide)
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
 GITHUB_REPO="sth8pwd5wx-max/barked"
-INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="barked"
+
+# Determine install location based on privileges
+if [[ $EUID -eq 0 ]]; then
+    INSTALL_DIR="/usr/local/bin"
+    INSTALL_TYPE="system-wide"
+else
+    INSTALL_DIR="${HOME}/.local/bin"
+    INSTALL_TYPE="user"
+fi
 
 # ═══════════════════════════════════════════════════════════════════
 # COLORS
@@ -15,6 +25,7 @@ BINARY_NAME="barked"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BROWN='\033[0;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # ═══════════════════════════════════════════════════════════════════
@@ -30,11 +41,6 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════
 # PREFLIGHT CHECKS
 # ═══════════════════════════════════════════════════════════════════
-if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}Error: This installer must be run as root (use sudo).${NC}" >&2
-    exit 1
-fi
-
 if ! command -v curl &>/dev/null; then
     echo -e "${RED}Error: curl is required but not found. Please install curl first.${NC}" >&2
     exit 1
@@ -55,8 +61,11 @@ case "$KERNEL" in
         ;;
 esac
 
-echo -e "  Detected OS:   ${GREEN}${OS}${NC}"
-echo -e "  Detected Arch: ${GREEN}${ARCH}${NC}"
+echo -e "  Detected OS:     ${GREEN}${OS}${NC}"
+echo -e "  Detected Arch:   ${GREEN}${ARCH}${NC}"
+echo -e "  Install type:    ${CYAN}${INSTALL_TYPE}${NC}"
+echo -e "  Install path:    ${CYAN}${INSTALL_DIR}${NC}"
+echo ""
 
 # barked requires Bash 4+ for associative arrays
 BASH4=""
@@ -80,7 +89,7 @@ if [[ -z "$BASH4" ]]; then
     exit 1
 fi
 
-echo -e "  Bash 4+:       ${GREEN}${BASH4}${NC}"
+echo -e "  Bash 4+:         ${GREEN}${BASH4}${NC}"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════
@@ -111,7 +120,7 @@ fi
 # INSTALL
 # ═══════════════════════════════════════════════════════════════════
 mkdir -p "$INSTALL_DIR"
-mv "$TMP_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
+cp "$TMP_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod 755 "${INSTALL_DIR}/${BINARY_NAME}"
 
 # ═══════════════════════════════════════════════════════════════════
@@ -120,12 +129,42 @@ chmod 755 "${INSTALL_DIR}/${BINARY_NAME}"
 INSTALLED_VERSION="$(${INSTALL_DIR}/${BINARY_NAME} --version 2>/dev/null || echo "unknown")"
 
 echo ""
-echo -e "${GREEN}Barked installed successfully!${NC}"
+echo -e "${GREEN}✓ Barked installed successfully!${NC}"
 echo -e "  Version:  ${GREEN}${INSTALLED_VERSION}${NC}"
 echo -e "  Location: ${GREEN}${INSTALL_DIR}/${BINARY_NAME}${NC}"
 echo ""
+
+# ═══════════════════════════════════════════════════════════════════
+# PATH SETUP (userspace installs only)
+# ═══════════════════════════════════════════════════════════════════
+if [[ "$INSTALL_TYPE" == "user" ]]; then
+    # Check if already in PATH
+    if ! echo "$PATH" | grep -q "${INSTALL_DIR}"; then
+        echo -e "${BROWN}Note: ${INSTALL_DIR} is not in your PATH.${NC}"
+        echo ""
+        echo "Add it to your shell profile:"
+        echo ""
+
+        # Detect shell and show appropriate command
+        if [[ -n "${BASH_VERSION:-}" ]] || [[ "$SHELL" == *"bash"* ]]; then
+            echo -e "  ${CYAN}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc${NC}"
+            echo -e "  ${CYAN}source ~/.bashrc${NC}"
+        elif [[ -n "${ZSH_VERSION:-}" ]] || [[ "$SHELL" == *"zsh"* ]]; then
+            echo -e "  ${CYAN}echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc${NC}"
+            echo -e "  ${CYAN}source ~/.zshrc${NC}"
+        else
+            echo -e "  ${CYAN}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+        fi
+        echo ""
+        echo "Or run directly:"
+        echo -e "  ${CYAN}${INSTALL_DIR}/${BINARY_NAME}${NC}"
+        echo ""
+    fi
+fi
+
 echo "Usage:"
 echo "  barked                 # Run hardening wizard"
 echo "  barked --clean         # Run system cleaner"
+echo "  barked --audit         # Security audit without changes"
 echo "  barked --update        # Update to latest version"
 echo ""

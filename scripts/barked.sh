@@ -6305,7 +6305,10 @@ run_update() {
         exit 0
     fi
 
+    # Check if we need root for the update
+    local need_root=false
     if [[ ! -w "$install_path" ]]; then
+        need_root=true
         acquire_sudo || {
             echo -e "${RED}Cannot update ${install_path} without admin privileges.${NC}"
             exit 1
@@ -6319,6 +6322,7 @@ run_update() {
     }
     local download_url="https://github.com/${GITHUB_REPO}/releases/latest/download/barked.sh"
 
+    echo -e "  Downloading v${latest}..."
     curl -fsSL --connect-timeout 5 --max-time 30 "$download_url" -o "$tmp_file" 2>/dev/null || {
         echo -e "${RED}Failed to download update.${NC}"
         rm -f "$tmp_file"
@@ -6332,14 +6336,27 @@ run_update() {
     fi
 
     chmod 755 "$tmp_file"
-    run_as_root mv "$tmp_file" "$install_path" 2>/dev/null || {
-        run_as_root cp "$tmp_file" "$install_path" 2>/dev/null || {
-            echo -e "${RED}Failed to replace ${install_path}.${NC}"
+
+    # Install using appropriate privileges
+    if [[ "$need_root" == true ]]; then
+        run_as_root mv "$tmp_file" "$install_path" 2>/dev/null || {
+            run_as_root cp "$tmp_file" "$install_path" 2>/dev/null || {
+                echo -e "${RED}Failed to replace ${install_path}.${NC}"
+                rm -f "$tmp_file"
+                exit 1
+            }
             rm -f "$tmp_file"
-            exit 1
         }
-        rm -f "$tmp_file"
-    }
+    else
+        mv "$tmp_file" "$install_path" 2>/dev/null || {
+            cp "$tmp_file" "$install_path" 2>/dev/null || {
+                echo -e "${RED}Failed to replace ${install_path}.${NC}"
+                rm -f "$tmp_file"
+                exit 1
+            }
+            rm -f "$tmp_file"
+        }
+    fi
 
     echo -e "${GREEN}Updated to v${latest}.${NC}"
     exit 0

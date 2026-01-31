@@ -18,10 +18,19 @@ Under the bark:
 
 ## Get Barked
 
-**macOS / Linux:**
+**macOS / Linux (userspace install - recommended):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | bash
+```
+
+Installs to `~/.local/bin`. No sudo needed for install or updates.
+
+**macOS / Linux (system-wide install):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
 ```
+
+Installs to `/usr/local/bin`.
 
 **Windows (PowerShell as Administrator):**
 ```powershell
