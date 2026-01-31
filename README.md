@@ -1,6 +1,6 @@
-# secure
+# Barked
 
-**Cross-platform security hardening wizard for macOS, Linux, and Windows.**
+**Your system's guard dog — cross-platform security hardening for macOS, Linux, and Windows.**
 
 ![macOS](https://img.shields.io/badge/macOS-supported-blue) ![Linux](https://img.shields.io/badge/Linux-supported-blue) ![Windows](https://img.shields.io/badge/Windows-supported-blue)
 
