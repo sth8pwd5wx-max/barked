@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════
 # install.ps1 — Barked installer for Windows
-# Usage: irm https://raw.githubusercontent.com/OWNER/REPO/main/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.ps1 | iex
 # ═══════════════════════════════════════════════════════════════════
 
-$GithubRepo  = "OWNER/REPO"
+$GithubRepo  = "sth8pwd5wx-max/barked"
 $InstallDir  = "C:\Program Files\Barked"
 $BinaryName  = "barked.ps1"
 $CmdWrapper  = "barked.cmd"

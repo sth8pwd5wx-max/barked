@@ -6,7 +6,7 @@
 set -uo pipefail
 
 readonly VERSION="2.0.0"
-readonly GITHUB_REPO="OWNER/REPO"
+readonly GITHUB_REPO="sth8pwd5wx-max/barked"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly DATE="$(date +%Y-%m-%d)"
 readonly TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"

@@ -21,7 +21,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
 $script:VERSION = "1.0.0"
-$script:GITHUB_REPO = "OWNER/REPO"
+$script:GITHUB_REPO = "sth8pwd5wx-max/barked"
 $script:DATE = Get-Date -Format "yyyy-MM-dd"
 $script:TIMESTAMP = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

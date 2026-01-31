@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════
 # install.sh — Barked installer for macOS / Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | sudo bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-GITHUB_REPO="OWNER/REPO"
+GITHUB_REPO="sth8pwd5wx-max/barked"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="barked"
 

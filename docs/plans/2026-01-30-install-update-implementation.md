@@ -21,7 +21,7 @@
 After line 8 (`readonly VERSION="2.0.0"`), add:
 
 ```bash
-readonly GITHUB_REPO="OWNER/REPO"
+readonly GITHUB_REPO="sth8pwd5wx-max/barked"
 ```
 
 **Step 2: Add --version flag to parse_args**
@@ -324,7 +324,7 @@ param(
 After line 20 (`$script:VERSION = "1.0.0"`), add:
 
 ```powershell
-$script:GITHUB_REPO = "OWNER/REPO"
+$script:GITHUB_REPO = "sth8pwd5wx-max/barked"
 ```
 
 **Step 3: Add update functions**
@@ -562,11 +562,11 @@ git commit -m "feat: add -Version, -Update, -UninstallSelf, and passive update c
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════
 # Barked installer — macOS / Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | sudo bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-GITHUB_REPO="OWNER/REPO"
+GITHUB_REPO="sth8pwd5wx-max/barked"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="barked"
 
@@ -672,10 +672,10 @@ git commit -m "feat: add install.sh for macOS/Linux curl one-liner"
 ```powershell
 # ═══════════════════════════════════════════════════════════════════
 # Barked installer — Windows
-# Usage: irm https://raw.githubusercontent.com/OWNER/REPO/main/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.ps1 | iex
 # ═══════════════════════════════════════════════════════════════════
 
-$GithubRepo = "OWNER/REPO"
+$GithubRepo = "sth8pwd5wx-max/barked"
 $InstallDir = "C:\Program Files\Barked"
 $BinaryName = "barked.ps1"
 $CmdWrapper = "barked.cmd"
@@ -778,12 +778,12 @@ Replace the existing Quick Start section (lines 13-30) with:
 
 **macOS / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
 ```
 
 **Windows (PowerShell as Administrator):**
 ```powershell
-irm https://raw.githubusercontent.com/OWNER/REPO/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.ps1 | iex
 ```
 
 Once installed, run `barked` from anywhere. The wizard guides you from there.
@@ -808,7 +808,7 @@ barked -UninstallSelf             # Windows (as Administrator)
 ### Manual Install (from source)
 
 ```bash
-git clone https://github.com/OWNER/REPO secure
+git clone https://github.com/sth8pwd5wx-max/barked secure
 cd secure
 chmod +x scripts/barked.sh
 sudo ./scripts/barked.sh
@@ -816,7 +816,7 @@ sudo ./scripts/barked.sh
 
 Windows:
 ```powershell
-git clone https://github.com/OWNER/REPO secure
+git clone https://github.com/sth8pwd5wx-max/barked secure
 cd secure
 .\scripts\barked.ps1
 ```
@@ -856,9 +856,9 @@ If the repo already exists or the remote is already set, just push:
 git push -u origin main
 ```
 
-**Step 4: Replace OWNER/REPO placeholders**
+**Step 4: Replace sth8pwd5wx-max/barked placeholders**
 
-After the repo is created, get the actual owner/repo path from `gh repo view --json nameWithOwner -q .nameWithOwner` and replace all `OWNER/REPO` placeholders in:
+After the repo is created, get the actual owner/repo path from `gh repo view --json nameWithOwner -q .nameWithOwner` and replace all `sth8pwd5wx-max/barked` placeholders in:
 - `scripts/barked.sh`
 - `scripts/barked.ps1`
 - `install.sh`
