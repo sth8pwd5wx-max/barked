@@ -854,11 +854,24 @@ run_audit() {
 
     # Determine which modules to audit
     if [[ -n "$AUTO_PROFILE" ]]; then
+        # Profile explicitly specified on command line
         PROFILE="$AUTO_PROFILE"
         build_module_list
         audit_mods=("${ENABLED_MODULES[@]}")
+    elif [[ -n "$STATE_PROFILE" ]]; then
+        # Use profile from state file (previously applied hardening)
+        PROFILE="$STATE_PROFILE"
+        build_module_list
+        audit_mods=("${ENABLED_MODULES[@]}")
+        if [[ "$QUIET_MODE" != true ]]; then
+            echo -e "  ${BROWN}Using profile from state: ${PROFILE}${NC}"
+        fi
     else
+        # No profile specified and no state exists - audit all modules
         audit_mods=("${ALL_MODULE_IDS[@]}")
+        if [[ "$QUIET_MODE" != true ]]; then
+            echo -e "  ${BROWN}No profile found - auditing all modules${NC}"
+        fi
     fi
 
     # Clear findings arrays
@@ -889,14 +902,23 @@ run_audit() {
         findings_map[$mod_id]="${mapped_status}|${msg}"
     done
 
-    # Calculate score: applied = modules that PASS
+    # Calculate score: only count applicable modules (exclude "skip")
+    # applied_mods = modules that PASS
+    # applicable_mods = modules that are not SKIP (i.e., relevant to this OS)
     local -a applied_mods=()
+    local -a applicable_mods=()
     for i in "${!FINDINGS_MODULE[@]}"; do
-        [[ "${FINDINGS_STATUS[$i]}" == "pass" ]] && applied_mods+=("${FINDINGS_MODULE[$i]}")
+        local mod="${FINDINGS_MODULE[$i]}"
+        local status="${FINDINGS_STATUS[$i]}"
+        # Skip modules not applicable to this OS
+        if [[ "$status" != "skip" ]]; then
+            applicable_mods+=("$mod")
+            [[ "$status" == "pass" ]] && applied_mods+=("$mod")
+        fi
     done
 
     local score_output
-    score_output=$(calculate_score audit_mods applied_mods)
+    score_output=$(calculate_score applicable_mods applied_mods)
     read -r _aw _tw pct _ac _tc <<< "$score_output"
 
     if [[ "$QUIET_MODE" != true ]]; then
@@ -1020,27 +1042,26 @@ pre_change_analysis() {
     done
 
     local already_applied=0 not_applicable=0 to_apply=0 partial=0
-    local -a already_ids=() apply_ids=()
+    local -a already_ids=() apply_ids=() applicable_mods=()
 
     for i in "${!FINDINGS_MODULE[@]}"; do
         local mod_id="${FINDINGS_MODULE[$i]}"
         case "${FINDINGS_STATUS[$i]}" in
-            pass)    ((already_applied++)); already_ids+=("$mod_id") ;;
-            skip)    ((not_applicable++)) ;;
-            manual|partial)  ((partial++)); apply_ids+=("$mod_id") ;;
-            fail)    ((to_apply++)); apply_ids+=("$mod_id") ;;
+            pass)    ((already_applied++)); already_ids+=("$mod_id"); applicable_mods+=("$mod_id") ;;
+            skip)    ((not_applicable++)) ;;  # Don't add to applicable_mods
+            manual|partial)  ((partial++)); apply_ids+=("$mod_id"); applicable_mods+=("$mod_id") ;;
+            fail)    ((to_apply++)); apply_ids+=("$mod_id"); applicable_mods+=("$mod_id") ;;
         esac
     done
 
-    # Calculate current and projected scores
-    local -a all_mods=("${ENABLED_MODULES[@]}")
+    # Calculate current and projected scores (only count applicable modules)
     local current_score projected_score
-    current_score=$(calculate_score all_mods already_ids)
+    current_score=$(calculate_score applicable_mods already_ids)
     read -r _aw1 _tw1 cur_pct _ac1 _tc1 <<< "$current_score"
 
     # Projected: assume all apply_ids + already_ids will pass
     local -a projected_applied=("${already_ids[@]}" "${apply_ids[@]}")
-    projected_score=$(calculate_score all_mods projected_applied)
+    projected_score=$(calculate_score applicable_mods projected_applied)
     read -r _aw2 _tw2 proj_pct _ac2 _tc2 <<< "$projected_score"
 
     if [[ "$QUIET_MODE" != true ]]; then
@@ -2210,6 +2231,7 @@ select_profile() {
     echo -e "  ${GREEN}[4]${NC} Advanced  — Custom questionnaire (choose per-category)"
     echo ""
     echo -e "  ${MAGENTA}[M]${NC} Modify    — Add or remove individual modules"
+    echo -e "  ${CYAN}[C]${NC} Clean     — System cleaner (caches, logs, privacy traces)"
     echo -e "  ${RED}[U]${NC} Uninstall — Remove all hardening changes"
     echo -e "  ${BROWN}[Q] Quit${NC}"
     echo ""
@@ -2223,6 +2245,7 @@ select_profile() {
             3) PROFILE="paranoid"; break ;;
             4) PROFILE="advanced"; run_questionnaire; break ;;
             m) RUN_MODE="modify"; break ;;
+            c) CLEAN_MODE=true; break ;;
             u) RUN_MODE="uninstall"; break ;;
             q) echo "Exiting."; exit 0 ;;
             *) echo -e "  ${RED}Invalid choice.${NC}" ;;
@@ -3692,13 +3715,18 @@ vet_advanced_module() {
     if [[ "$DRY_RUN" == true ]]; then return 0; fi
     if [[ "$AUTO_MODE" == true && "$ACCEPT_ADVANCED" != true ]]; then return 1; fi
 
+    # Box width = 64 chars total, 60 chars usable between borders
+    local title_text="⚠  ADVANCED MODULE: ${title}"
+    local title_len=${#title_text}
+    local desc_len=${#risk_desc}
+
     echo ""
     echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║${NC}  ${BOLD}⚠  ADVANCED MODULE: ${title}${NC}"
-    echo -e "${RED}║${NC}"
-    echo -e "${RED}║${NC}  ${risk_desc}"
-    echo -e "${RED}║${NC}"
-    echo -e "${RED}║${NC}  ${BROWN}This module requires explicit confirmation to apply.${NC}"
+    printf "${RED}║${NC}  ${BOLD}%-58s${NC}${RED}║${NC}\n" "$title_text"
+    echo -e "${RED}║${NC}                                                              ${RED}║${NC}"
+    printf "${RED}║${NC}  %-58s${RED}║${NC}\n" "$risk_desc"
+    echo -e "${RED}║${NC}                                                              ${RED}║${NC}"
+    printf "${RED}║${NC}  ${BROWN}%-58s${NC}${RED}║${NC}\n" "This module requires explicit confirmation to apply."
     echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "  ${GREEN}Running mandatory dry-run preview...${NC}"
@@ -4679,16 +4707,21 @@ print_summary() {
     echo -e "  ${RED}☐${NC} Manual:     ${BOLD}${COUNT_MANUAL}${NC}$([ $COUNT_MANUAL -gt 0 ] && echo -e " ${RED}(see below)${NC}")"
     echo ""
 
-    # Post-run score: count applied + skipped (already done) as passing
-    local -a all_mods=("${ENABLED_MODULES[@]}")
+    # Post-run score: count applied modules, exclude OS-incompatible modules
+    local -a applicable_mods=()
     local -a applied_mods=()
     for mod_id in "${ENABLED_MODULES[@]}"; do
-        if [[ "${STATE_MODULES[$mod_id]:-}" == "applied" ]]; then
-            applied_mods+=("$mod_id")
+        # Only count modules that were applicable to this OS
+        # (modules with no state entry were skipped_unsupported)
+        if [[ -n "${STATE_MODULES[$mod_id]:-}" ]]; then
+            applicable_mods+=("$mod_id")
+            if [[ "${STATE_MODULES[$mod_id]}" == "applied" ]]; then
+                applied_mods+=("$mod_id")
+            fi
         fi
     done
     local score_output
-    score_output=$(calculate_score all_mods applied_mods)
+    score_output=$(calculate_score applicable_mods applied_mods)
     local _aw _tw pct _ac _tc
     read -r _aw _tw pct _ac _tc <<< "$score_output"
     print_score_bar "$pct"
@@ -6452,6 +6485,10 @@ main() {
                 print_modify_summary
                 print_manual_checklist
                 write_log
+                return
+            elif [[ "$CLEAN_MODE" == true ]]; then
+                run_clean
+                check_update_passive
                 return
             fi
 
