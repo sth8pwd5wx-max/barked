@@ -6258,8 +6258,8 @@ write_clean_log() {
 run_clean() {
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC}${BOLD}          BARKED SYSTEM CLEANER v${VERSION}           ${NC}${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                  macOS / Linux                   ${GREEN}║${NC}"
+    printf "${GREEN}║${NC}${BOLD}%-50s${NC}${GREEN}║${NC}\n" "          BARKED SYSTEM CLEANER v${VERSION}"
+    printf "${GREEN}║${NC}%-50s${GREEN}║${NC}\n" "                  macOS / Linux"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 
     clean_picker
