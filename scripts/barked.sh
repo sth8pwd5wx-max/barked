@@ -5560,6 +5560,7 @@ browser_running() {
 
 safe_rm_contents() {
     local dir="$1"
+    local use_root="${2:-false}"
     if [[ ! -d "$dir" ]]; then return 1; fi
     local real_dir
     real_dir=$(cd "$dir" 2>/dev/null && pwd -P)
@@ -5586,7 +5587,15 @@ safe_rm_contents() {
         else
             fsize=$(stat -c '%s' "$file" 2>/dev/null || echo 0)
         fi
-        if rm -f "$file" 2>/dev/null; then
+
+        local rm_ok=false
+        if [[ "$use_root" == true ]]; then
+            run_as_root rm -f "$file" 2>/dev/null && rm_ok=true
+        else
+            rm -f "$file" 2>/dev/null && rm_ok=true
+        fi
+
+        if $rm_ok; then
             bytes_freed=$((bytes_freed + fsize))
             ((files_removed++))
             clean_log "CLEAN" "Removed $file ($(format_bytes "$fsize"))"
@@ -5595,7 +5604,11 @@ safe_rm_contents() {
         fi
     done < <(find "$real_dir" -not -type l -type f -print0 2>/dev/null)
 
-    find "$real_dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+    if [[ "$use_root" == true ]]; then
+        run_as_root find "$real_dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+    else
+        find "$real_dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+    fi
 
     SAFE_RM_FILES=$files_removed
     SAFE_RM_BYTES=$bytes_freed
@@ -5607,12 +5620,12 @@ safe_rm_contents() {
 
 clean_system_cache() {
     if [[ "$OS" == "macos" ]]; then
-        safe_rm_contents "/Library/Caches"
+        safe_rm_contents "/Library/Caches" true
     else
         local total_f=0 total_b=0
         for d in /var/cache/apt/archives /var/cache/dnf /var/cache/pacman/pkg; do
             if [[ -d "$d" ]]; then
-                safe_rm_contents "$d"
+                safe_rm_contents "$d" true
                 total_f=$((total_f + SAFE_RM_FILES))
                 total_b=$((total_b + SAFE_RM_BYTES))
             fi
@@ -5629,7 +5642,7 @@ clean_system_logs() {
         local total_f=0 total_b=0
         for d in /Library/Logs /var/log/asl; do
             if [[ -d "$d" ]]; then
-                safe_rm_contents "$d"
+                safe_rm_contents "$d" true
                 total_f=$((total_f + SAFE_RM_FILES))
                 total_b=$((total_b + SAFE_RM_BYTES))
             fi
@@ -5648,9 +5661,9 @@ clean_system_logs() {
 
 clean_diagnostic_reports() {
     if [[ "$OS" == "macos" ]]; then
-        safe_rm_contents "/Library/Logs/DiagnosticReports"
+        safe_rm_contents "/Library/Logs/DiagnosticReports" true
     else
-        safe_rm_contents "/var/crash"
+        safe_rm_contents "/var/crash" true
     fi
     CLEAN_RESULT_FILES[diagnostic-reports]=$SAFE_RM_FILES
     CLEAN_RESULT_BYTES[diagnostic-reports]=$SAFE_RM_BYTES
