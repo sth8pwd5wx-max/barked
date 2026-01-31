@@ -1083,6 +1083,60 @@ install_scheduler_linux() {
     fi
 }
 
+unschedule_clean() {
+    print_section "Remove Scheduled Cleaning"
+
+    if ! load_scheduled_config; then
+        echo -e "  ${BROWN}No scheduled cleaning configured${NC}"
+        return 0
+    fi
+
+    case "$OS" in
+        macos)
+            local plist_path="${HOME}/Library/LaunchAgents/com.barked.scheduled-clean.plist"
+            if [[ -f "$plist_path" ]]; then
+                launchctl unload "$plist_path" 2>/dev/null || true
+                rm -f "$plist_path"
+                echo -e "  ${GREEN}✓ Removed LaunchAgent${NC}"
+            fi
+            ;;
+        linux)
+            # Get barked path to match install pattern
+            local barked_path
+            barked_path="$(command -v barked 2>/dev/null || echo "$0")"
+            barked_path="$(cd "$(dirname "$barked_path")" && pwd)/$(basename "$barked_path")"
+
+            # Use full path in grep
+            (crontab -l 2>/dev/null | grep -vF "$barked_path --clean-scheduled") | crontab - 2>/dev/null || true
+            echo -e "  ${GREEN}✓ Removed from crontab${NC}"
+            ;;
+    esac
+
+    # Disable in config
+    if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]]; then
+        if ! python3 -c "
+import json
+try:
+    with open('$SCHED_CLEAN_CONFIG_USER', 'r') as f:
+        config = json.load(f)
+    config['enabled'] = False
+    with open('$SCHED_CLEAN_CONFIG_USER', 'w') as f:
+        json.dump(config, f, indent=2)
+except (FileNotFoundError, json.JSONDecodeError, IOError) as e:
+    import sys
+    print(f'Error: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null; then
+            echo -e "  ${RED}✗ Failed to update config${NC}"
+            # Continue anyway - scheduler was removed successfully
+        else
+            echo -e "  ${GREEN}✓ Disabled scheduled cleaning${NC}"
+        fi
+    fi
+
+    echo ""
+}
+
 # ═══════════════════════════════════════════════════════════════════
 # SEVERITY MAP & SCORING
 # ═══════════════════════════════════════════════════════════════════
