@@ -15,7 +15,7 @@ Add a system install mechanism and self-update system for barked. Users install 
 Users run:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
 ```
 
 `install.sh` does:
@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/OWNER/REPO/main/install.sh | sudo b
 Users run:
 
 ```powershell
-irm https://raw.githubusercontent.com/OWNER/REPO/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.ps1 | iex
 ```
 
 `install.ps1` does:
@@ -52,7 +52,7 @@ irm https://raw.githubusercontent.com/OWNER/REPO/main/install.ps1 | iex
 
 Built into both `barked.sh` and `barked.ps1`:
 
-1. Query GitHub releases API: `https://api.github.com/repos/OWNER/REPO/releases/latest`
+1. Query GitHub releases API: `https://api.github.com/repos/sth8pwd5wx-max/barked/releases/latest`
 2. Extract the latest version tag (e.g., `v2.1.0`)
 3. Compare against local `VERSION` using semver comparison
 4. If newer: download new script from release assets, validate syntax, atomic replace

@@ -11,13 +11,17 @@ param(
     [switch]$Clean,
     [switch]$Force,
     [switch]$DryRun,
-    [switch]$Help
+    [switch]$Help,
+    [switch]$Version,
+    [switch]$Update,
+    [switch]$UninstallSelf
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
 $script:VERSION = "1.0.0"
+$script:GITHUB_REPO = "sth8pwd5wx-max/barked"
 $script:DATE = Get-Date -Format "yyyy-MM-dd"
 $script:TIMESTAMP = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -3723,6 +3727,159 @@ function Invoke-Clean {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# UPDATE SYSTEM
+# ═══════════════════════════════════════════════════════════════════
+function Test-VersionGt {
+    param([string]$New, [string]$Current)
+    try {
+        return ([version]$New -gt [version]$Current)
+    } catch {
+        return $false
+    }
+}
+
+function Get-LatestVersion {
+    try {
+        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$($script:GITHUB_REPO)/releases/latest" -TimeoutSec 10
+        $tag = $response.tag_name
+        if (-not $tag) { return $null }
+        return $tag -replace '^v', ''
+    } catch {
+        return $null
+    }
+}
+
+function Invoke-Update {
+    Write-ColorLine "Checking for updates..." DarkYellow
+
+    $latest = Get-LatestVersion
+    if (-not $latest) {
+        Write-ColorLine "Could not reach GitHub to check for updates." Red
+        exit 1
+    }
+
+    if (-not (Test-VersionGt -New $latest -Current $script:VERSION)) {
+        Write-ColorLine "Already up to date (v$($script:VERSION))." Green
+        exit 0
+    }
+
+    # Check admin privileges
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-ColorLine "Update requires Administrator privileges. Re-run as Administrator." Red
+        exit 1
+    }
+
+    $installDir = "C:\Program Files\Barked"
+    $installPath = Join-Path $installDir "barked.ps1"
+    $tmpFile = Join-Path $env:TEMP "barked-new-$(Get-Random).ps1"
+    $downloadUrl = "https://github.com/$($script:GITHUB_REPO)/releases/latest/download/barked.ps1"
+
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $tmpFile -TimeoutSec 30 -ErrorAction Stop
+    } catch {
+        Write-ColorLine "Failed to download update." Red
+        Remove-Item -Path $tmpFile -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    # Validate syntax
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($tmpFile, [ref]$null, [ref]$errors) | Out-Null
+    if ($errors.Count -gt 0) {
+        Write-ColorLine "Downloaded file has syntax errors — aborting update." Red
+        Remove-Item -Path $tmpFile -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    # Create install directory if needed
+    if (-not (Test-Path $installDir)) {
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+    }
+
+    Move-Item -Path $tmpFile -Destination $installPath -Force
+    Write-ColorLine "Updated to v${latest}." Green
+    exit 0
+}
+
+function Invoke-PassiveUpdateCheck {
+    $cacheFile = Join-Path $env:TEMP "barked-update-check"
+    $cacheMax = 86400
+    $now = [int][double]::Parse((Get-Date -UFormat %s))
+
+    try {
+        if (Test-Path $cacheFile) {
+            $lines = Get-Content $cacheFile -ErrorAction Stop
+            if ($lines.Count -ge 2) {
+                $cachedEpoch = [int]$lines[0]
+                $cachedVersion = $lines[1]
+
+                if (($now - $cachedEpoch) -lt $cacheMax) {
+                    if ($cachedVersion -and (Test-VersionGt -New $cachedVersion -Current $script:VERSION)) {
+                        Write-ColorLine "A new version is available (v${cachedVersion}). Run: barked -Update" Green
+                    }
+                    return
+                }
+            }
+        }
+
+        $latest = Get-LatestVersion
+        if (-not $latest) { return }
+
+        @($now, $latest) | Set-Content $cacheFile -ErrorAction SilentlyContinue
+
+        if (Test-VersionGt -New $latest -Current $script:VERSION) {
+            Write-ColorLine "A new version is available (v${latest}). Run: barked -Update" Green
+        }
+    } catch {
+        return
+    }
+}
+
+function Invoke-UninstallSelf {
+    $installDir = "C:\Program Files\Barked"
+    $installPath = Join-Path $installDir "barked.ps1"
+    $cmdPath = Join-Path $installDir "barked.cmd"
+
+    if (-not (Test-Path $installPath)) {
+        Write-ColorLine "barked not found at ${installPath}. Nothing to uninstall." Red
+        exit 1
+    }
+
+    # Check admin privileges
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-ColorLine "Uninstall requires Administrator privileges. Re-run as Administrator." Red
+        exit 1
+    }
+
+    # Remove barked files
+    Remove-Item -Path $installPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $cmdPath -Force -ErrorAction SilentlyContinue
+
+    # Remove from system PATH
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($machinePath -and $machinePath.Contains($installDir)) {
+        $newPath = ($machinePath -split ';' | Where-Object { $_ -ne $installDir }) -join ';'
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "Machine")
+    }
+
+    # Remove empty directory
+    if ((Test-Path $installDir) -and @(Get-ChildItem $installDir -Force).Count -eq 0) {
+        Remove-Item -Path $installDir -Force -ErrorAction SilentlyContinue
+    }
+
+    # Clean cache
+    $cacheFile = Join-Path $env:TEMP "barked-update-check"
+    Remove-Item -Path $cacheFile -Force -ErrorAction SilentlyContinue
+
+    Write-ColorLine "barked has been removed from ${installDir}." Green
+    exit 0
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
 function Print-Help {
@@ -3736,6 +3893,9 @@ function Print-Help {
     Write-Host "  -Force        Skip confirmation prompts (use with -Clean)"
     Write-Host "  -DryRun       Preview changes without applying them (use with -Clean)"
     Write-Host "  -Help         Show this help message"
+    Write-Host "  -Version        Show version and exit"
+    Write-Host "  -Update         Update barked to the latest version"
+    Write-Host "  -UninstallSelf  Remove barked from system PATH"
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\barked.ps1                        Interactive wizard"
@@ -3753,6 +3913,16 @@ function Main {
         Print-Help
         exit 0
     }
+    if ($Version) {
+        Write-Host "barked v$($script:VERSION)"
+        exit 0
+    }
+    if ($Update) {
+        Invoke-Update
+    }
+    if ($UninstallSelf) {
+        Invoke-UninstallSelf
+    }
     if ($Uninstall) {
         $script:RunMode = "uninstall"
     }
@@ -3762,6 +3932,7 @@ function Main {
 
     if ($Clean) {
         Invoke-Clean
+        Invoke-PassiveUpdateCheck
         exit 0
     }
 
@@ -3772,11 +3943,13 @@ function Main {
         "uninstall" {
             Run-Uninstall
             Write-Log
+            Invoke-PassiveUpdateCheck
             return
         }
         "modify" {
             Run-Modify
             Write-Log
+            Invoke-PassiveUpdateCheck
             return
         }
         default {
@@ -3787,11 +3960,13 @@ function Main {
             if ($script:RunMode -eq "uninstall") {
                 Run-Uninstall
                 Write-Log
+                Invoke-PassiveUpdateCheck
                 return
             }
             if ($script:RunMode -eq "modify") {
                 Run-Modify
                 Write-Log
+                Invoke-PassiveUpdateCheck
                 return
             }
 
@@ -3821,6 +3996,7 @@ function Main {
 
             Write-Log
 
+            Invoke-PassiveUpdateCheck
             Write-Host ""
             Write-ColorLine "  Re-run this script anytime — it's safe to repeat." DarkYellow
             Write-Host ""

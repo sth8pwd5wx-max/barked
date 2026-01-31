@@ -10,24 +10,52 @@ Single-file scripts that walk you through hardening your system via an interacti
 
 Every change is idempotent and reversible. The scripts check system state before each change, skip what's already applied, and can undo everything they do. No external dependencies — just Bash (macOS/Linux) or PowerShell (Windows).
 
-## Quick Start
+## Install
 
 **macOS / Linux:**
 ```bash
-git clone <repo-url> secure
+curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.ps1 | iex
+```
+
+Once installed, run `barked` from anywhere. The wizard guides you from there.
+
+### Update
+
+```bash
+sudo barked --update              # macOS / Linux
+barked -Update                    # Windows (as Administrator)
+```
+
+Barked also checks for updates after each run and notifies you if a new version is available.
+
+### Uninstall Barked
+
+To remove barked itself from your system (not to revert hardening changes):
+```bash
+sudo barked --uninstall-self      # macOS / Linux
+barked -UninstallSelf             # Windows (as Administrator)
+```
+
+### Manual Install (from source)
+
+```bash
+git clone https://github.com/sth8pwd5wx-max/barked secure
 cd secure
 chmod +x scripts/barked.sh
 sudo ./scripts/barked.sh
 ```
 
-**Windows (PowerShell as Administrator):**
+Windows:
 ```powershell
-git clone <repo-url> secure
+git clone https://github.com/sth8pwd5wx-max/barked secure
 cd secure
 .\scripts\barked.ps1
 ```
-
-The wizard guides you from there.
 
 ## Profiles
 
@@ -146,6 +174,8 @@ If the state file is missing, the scripts detect applied hardening from live sys
 
 ```
 secure/
+├── install.sh                # macOS/Linux installer
+├── install.ps1               # Windows installer
 ├── scripts/
 │   ├── barked.sh              # macOS + Linux wizard
 │   ├── barked.ps1             # Windows wizard

@@ -6,6 +6,7 @@
 set -uo pipefail
 
 readonly VERSION="2.0.0"
+readonly GITHUB_REPO="sth8pwd5wx-max/barked"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly DATE="$(date +%Y-%m-%d)"
 readonly TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -4749,6 +4750,16 @@ parse_args() {
             --force)
                 CLEAN_FORCE=true
                 ;;
+            --update)
+                run_update
+                ;;
+            --uninstall-self)
+                run_uninstall_self
+                ;;
+            --version|-v)
+                echo "barked v${VERSION}"
+                exit 0
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -4763,6 +4774,9 @@ parse_args() {
                 echo "  --quiet, -q            Suppress interactive output (requires --auto or --audit)"
                 echo "  --accept-advanced      Accept all advanced hardening prompts"
                 echo "  --force                Skip confirmation prompt (use with --clean)"
+                echo "  --version, -v          Show version and exit"
+                echo "  --update               Update barked to the latest version"
+                echo "  --uninstall-self       Remove barked from system PATH"
                 echo "  --help, -h             Show this help"
                 echo ""
                 echo "Examples:"
@@ -4774,6 +4788,7 @@ parse_args() {
                 echo "  $0 --uninstall                      Revert all changes"
                 echo "  $0 --clean                          Interactive system cleaner"
                 echo "  $0 --clean --dry-run                Preview what would be cleaned"
+                echo "  $0 --version                          Show version"
                 echo "  $0 --clean --force                  Clean without confirmation"
                 exit 0
                 ;;
@@ -6115,6 +6130,137 @@ run_clean() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# UPDATE SYSTEM
+# ═══════════════════════════════════════════════════════════════════
+version_gt() {
+    local IFS='.'
+    local i v1=($1) v2=($2)
+    for ((i = 0; i < 3; i++)); do
+        local a="${v1[i]:-0}" b="${v2[i]:-0}"
+        if ((a > b)); then return 0; fi
+        if ((a < b)); then return 1; fi
+    done
+    return 1
+}
+
+fetch_latest_version() {
+    local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    local response
+    response="$(curl -fsSL --connect-timeout 5 --max-time 10 "$api_url" 2>/dev/null)" || return 1
+    local tag
+    tag="$(echo "$response" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || return 1
+    [[ -z "$tag" ]] && return 1
+    echo "${tag#v}"
+}
+
+run_update() {
+    echo -e "${BROWN}Checking for updates...${NC}"
+
+    local install_path
+    install_path="$(command -v barked 2>/dev/null)" || install_path="$0"
+
+    local latest
+    latest="$(fetch_latest_version)" || {
+        echo -e "${RED}Could not reach GitHub to check for updates.${NC}"
+        exit 1
+    }
+
+    if ! version_gt "$latest" "$VERSION"; then
+        echo -e "${GREEN}Already up to date (v${VERSION}).${NC}"
+        exit 0
+    fi
+
+    if [[ ! -w "$install_path" ]]; then
+        echo -e "${RED}No write permission to ${install_path}. Try: sudo barked --update${NC}"
+        exit 1
+    fi
+
+    local tmp_file
+    tmp_file="$(mktemp /tmp/barked-new-XXXXXX.sh)" || {
+        echo -e "${RED}Failed to create temp file.${NC}"
+        exit 1
+    }
+    local download_url="https://github.com/${GITHUB_REPO}/releases/latest/download/barked.sh"
+
+    curl -fsSL --connect-timeout 5 --max-time 30 "$download_url" -o "$tmp_file" 2>/dev/null || {
+        echo -e "${RED}Failed to download update.${NC}"
+        rm -f "$tmp_file"
+        exit 1
+    }
+
+    if ! bash -n "$tmp_file" 2>/dev/null; then
+        echo -e "${RED}Downloaded file has syntax errors — aborting update.${NC}"
+        rm -f "$tmp_file"
+        exit 1
+    fi
+
+    chmod +x "$tmp_file"
+    mv "$tmp_file" "$install_path" 2>/dev/null || {
+        cp "$tmp_file" "$install_path" 2>/dev/null || {
+            echo -e "${RED}Failed to replace ${install_path}.${NC}"
+            rm -f "$tmp_file"
+            exit 1
+        }
+        rm -f "$tmp_file"
+    }
+
+    echo -e "${GREEN}Updated to v${latest}.${NC}"
+    exit 0
+}
+
+check_update_passive() {
+    [[ "${QUIET_MODE:-}" == true ]] && return
+    command -v curl &>/dev/null || return 0
+
+    local cache_file="${TMPDIR:-/tmp}/barked-update-check-$(id -u)"
+    local cache_max=86400
+    local now
+    now="$(date +%s)" || return 0
+
+    if [[ -f "$cache_file" ]]; then
+        local cached_epoch cached_version
+        cached_epoch="$(sed -n '1p' "$cache_file" 2>/dev/null)" || return 0
+        cached_version="$(sed -n '2p' "$cache_file" 2>/dev/null)" || return 0
+
+        if [[ -n "$cached_epoch" ]] && (( now - cached_epoch < cache_max )); then
+            if [[ -n "$cached_version" ]] && version_gt "$cached_version" "$VERSION"; then
+                echo -e "${GREEN}A new version is available (v${cached_version}). Run: barked --update${NC}"
+            fi
+            return 0
+        fi
+    fi
+
+    local latest
+    latest="$(fetch_latest_version 2>/dev/null)" || return 0
+
+    printf '%s\n%s\n' "$now" "$latest" > "$cache_file" 2>/dev/null || true
+
+    if version_gt "$latest" "$VERSION"; then
+        echo -e "${GREEN}A new version is available (v${latest}). Run: barked --update${NC}"
+    fi
+
+    return 0
+}
+
+run_uninstall_self() {
+    local install_path
+    install_path="$(command -v barked 2>/dev/null)" || {
+        echo -e "${RED}barked not found in PATH. Nothing to uninstall.${NC}"
+        exit 1
+    }
+
+    if [[ ! -w "$install_path" ]]; then
+        echo -e "${RED}No write permission to ${install_path}. Try: sudo barked --uninstall-self${NC}"
+        exit 1
+    fi
+
+    rm -f "$install_path"
+    rm -f "${TMPDIR:-/tmp}/barked-update-check-$(id -u)"
+    echo -e "${GREEN}barked has been removed from ${install_path}.${NC}"
+    exit 0
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════
 main() {
@@ -6127,12 +6273,14 @@ main() {
     # ── Audit-only mode: score and exit ──
     if [[ "$AUDIT_MODE" == true ]]; then
         run_audit
+        check_update_passive
         exit 0
     fi
 
     # ── Clean mode: system cleaner ──
     if [[ "$CLEAN_MODE" == true ]]; then
         run_clean
+        check_update_passive
         exit 0
     fi
 
@@ -6232,6 +6380,9 @@ main() {
             write_log
             ;;
     esac
+
+    # Passive update check (runs after all work is done)
+    check_update_passive
 
     echo ""
     echo -e "  ${BROWN}Re-run this script anytime — it's safe to repeat.${NC}"
