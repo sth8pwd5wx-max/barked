@@ -1,16 +1,22 @@
 # Barked
 
-**Tough outer layer for your system — cross-platform security hardening for macOS, Linux, and Windows.**
+**Tough outer layer for your system.**
+
+Cross-platform security hardening for macOS, Linux, and Windows.
+One script. No dependencies. Every change reversible.
 
 ![macOS](https://img.shields.io/badge/macOS-supported-blue) ![Linux](https://img.shields.io/badge/Linux-supported-blue) ![Windows](https://img.shields.io/badge/Windows-supported-blue)
 
 ## What This Does
 
-Single-file scripts that walk you through hardening your system via an interactive wizard. Pick a preset profile (Standard, High, or Paranoid) for fast deployment, or run the advanced questionnaire to build a custom configuration tailored to your threat model.
+Barked wraps your system in a tough, protective layer. Pick a preset profile — Standard, High, or Paranoid — for fast deployment, or answer a short questionnaire to build a config matched to your threat model.
 
-Every change is idempotent and reversible. The scripts check system state before each change, skip what's already applied, and can undo everything they do. No external dependencies — just Bash (macOS/Linux) or PowerShell (Windows).
+Under the bark:
+- **Idempotent** — checks before changing, skips what's already applied
+- **Reversible** — every change can be undone, previous values saved to state
+- **Zero dependencies** — just Bash (macOS/Linux) or PowerShell (Windows)
 
-## Install
+## Get Barked
 
 **macOS / Linux:**
 ```bash
@@ -22,7 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.
 irm https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.ps1 | iex
 ```
 
-Once installed, run `barked` from anywhere. The wizard guides you from there.
+Run `barked` from anywhere. The wizard takes it from there.
 
 ### Update
 
@@ -44,18 +50,37 @@ barked -UninstallSelf             # Windows (as Administrator)
 ### Manual Install (from source)
 
 ```bash
-git clone https://github.com/sth8pwd5wx-max/barked secure
-cd secure
+git clone https://github.com/sth8pwd5wx-max/barked
+cd barked
 chmod +x scripts/barked.sh
 sudo ./scripts/barked.sh
 ```
 
 Windows:
 ```powershell
-git clone https://github.com/sth8pwd5wx-max/barked secure
-cd secure
+git clone https://github.com/sth8pwd5wx-max/barked
+cd barked
 .\scripts\barked.ps1
 ```
+
+## How It Works
+
+Every module follows four rings of protection:
+
+```
+check_state ──→ apply ──→ verify ──→ (revert)
+     │                       │
+     │ already applied       │ failed
+     ▼                       ▼
+  [SKIP]                 [LOG ERROR]
+```
+
+1. **Check** — Already applied? Skip.
+2. **Apply** — Make the change. Save previous value to state.
+3. **Verify** — Confirm it took effect.
+4. **Revert** — Undo it, restore previous value.
+
+All actions logged to `audits/hardening-log-YYYY-MM-DD.txt`.
 
 ## Profiles
 
@@ -121,19 +146,19 @@ For platform-specific implementation details, see [docs/plans/2026-01-29-hardeni
 
 ## System Cleaner
 
-Built-in system cleaner for privacy and disk hygiene. Run alongside hardening or independently.
+Shed the dead wood. Built-in system cleaner for privacy and disk hygiene.
 
 ```bash
-sudo ./barked.sh --clean              # Interactive cleaning wizard
-sudo ./barked.sh --clean --dry-run    # Preview what would be cleaned
-sudo ./barked.sh --clean --force      # Skip confirmation prompt
+sudo barked --clean              # Interactive cleaning wizard
+sudo barked --clean --dry-run    # Preview what would be cleaned
+sudo barked --clean --force      # Skip confirmation prompt
 ```
 
 Windows:
 ```powershell
-.\barked.ps1 -Clean                   # Interactive cleaning wizard
-.\barked.ps1 -Clean -DryRun           # Preview what would be cleaned
-.\barked.ps1 -Clean -Force            # Skip confirmation prompt
+.\barked.ps1 -Clean              # Interactive cleaning wizard
+.\barked.ps1 -Clean -DryRun     # Preview what would be cleaned
+.\barked.ps1 -Clean -Force      # Skip confirmation prompt
 ```
 
 **Categories:** System Caches & Logs, User Caches & Logs, Browser Data, Privacy Traces, Developer Cruft, Trash & Downloads, Mail & Messages
@@ -146,18 +171,18 @@ Windows:
 - Cleanliness score with severity-weighted scoring
 - Full logging to `audits/clean-log-YYYY-MM-DD.txt`
 
-## Uninstall & Modify
+## Peel It Back
 
 **Full uninstall** — revert all changes:
 ```bash
-sudo ./scripts/barked.sh --uninstall          # macOS / Linux
-.\scripts\barked.ps1 -Uninstall               # Windows
+sudo barked --uninstall          # macOS / Linux
+.\barked.ps1 -Uninstall          # Windows
 ```
 
 **Modify** — add or remove individual modules:
 ```bash
-sudo ./scripts/barked.sh --modify             # macOS / Linux
-.\scripts\barked.ps1 -Modify                  # Windows
+sudo barked --modify             # macOS / Linux
+.\barked.ps1 -Modify             # Windows
 ```
 
 Both options are also available from the wizard menu (`[U]` Uninstall, `[M]` Modify).
@@ -173,7 +198,7 @@ If the state file is missing, the scripts detect applied hardening from live sys
 ## File Structure
 
 ```
-secure/
+barked/
 ├── install.sh                # macOS/Linux installer
 ├── install.ps1               # Windows installer
 ├── scripts/
@@ -185,25 +210,6 @@ secure/
 ├── baseline/                  # Known-good system snapshots
 └── state/                     # Hardening state files
 ```
-
-## How It Works
-
-Every module follows a four-step pattern:
-
-```
-check_state ──→ apply ──→ verify ──→ (revert)
-     │                       │
-     │ already applied       │ failed
-     ▼                       ▼
-  [SKIP]                 [LOG ERROR]
-```
-
-1. **Check** — Is this already applied? Skip if so.
-2. **Apply** — Make the change. Save the previous value to the state file.
-3. **Verify** — Confirm the change took effect.
-4. **Revert** — Undo the change, restoring the previous value from state.
-
-All actions are logged to `audits/hardening-log-YYYY-MM-DD.txt`.
 
 ## License
 
