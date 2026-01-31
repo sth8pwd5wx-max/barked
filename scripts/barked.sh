@@ -5,6 +5,21 @@
 # ═══════════════════════════════════════════════════════════════════
 set -uo pipefail
 
+# Bash 4+ required for associative arrays
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "Error: barked requires Bash 4.0 or later (found ${BASH_VERSION})."
+    echo ""
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo "  macOS ships Bash 3.2. Install a newer version:"
+        echo "    brew install bash"
+        echo "  Then run:  /opt/homebrew/bin/bash $(basename "$0") $*"
+        echo "  Or add /opt/homebrew/bin/bash to /etc/shells and chsh."
+    else
+        echo "  Install bash 4+: sudo apt install bash  (or equivalent)"
+    fi
+    exit 1
+fi
+
 readonly VERSION="2.0.0"
 readonly GITHUB_REPO="sth8pwd5wx-max/barked"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

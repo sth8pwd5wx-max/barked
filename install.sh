@@ -57,6 +57,30 @@ esac
 
 echo -e "  Detected OS:   ${GREEN}${OS}${NC}"
 echo -e "  Detected Arch: ${GREEN}${ARCH}${NC}"
+
+# barked requires Bash 4+ for associative arrays
+BASH4=""
+if ((BASH_VERSINFO[0] >= 4)); then
+    BASH4="$(command -v bash)"
+elif [[ -x /opt/homebrew/bin/bash ]]; then
+    BASH4="/opt/homebrew/bin/bash"
+elif [[ -x /usr/local/bin/bash ]]; then
+    BASH4="/usr/local/bin/bash"
+fi
+
+if [[ -z "$BASH4" ]]; then
+    echo ""
+    echo -e "${RED}Error: barked requires Bash 4.0+ (system has ${BASH_VERSION}).${NC}"
+    if [[ "$OS" == "macOS" ]]; then
+        echo -e "  Install it:  ${GREEN}brew install bash${NC}"
+        echo "  Then re-run this installer."
+    else
+        echo "  Install bash 4+: sudo apt install bash (or equivalent)"
+    fi
+    exit 1
+fi
+
+echo -e "  Bash 4+:       ${GREEN}${BASH4}${NC}"
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════
