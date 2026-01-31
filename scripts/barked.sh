@@ -6,6 +6,7 @@
 set -uo pipefail
 
 readonly VERSION="2.0.0"
+readonly GITHUB_REPO="OWNER/REPO"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly DATE="$(date +%Y-%m-%d)"
 readonly TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -4749,6 +4750,10 @@ parse_args() {
             --force)
                 CLEAN_FORCE=true
                 ;;
+            --version|-v)
+                echo "barked v${VERSION}"
+                exit 0
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -4763,6 +4768,7 @@ parse_args() {
                 echo "  --quiet, -q            Suppress interactive output (requires --auto or --audit)"
                 echo "  --accept-advanced      Accept all advanced hardening prompts"
                 echo "  --force                Skip confirmation prompt (use with --clean)"
+                echo "  --version, -v          Show version and exit"
                 echo "  --help, -h             Show this help"
                 echo ""
                 echo "Examples:"
@@ -4774,6 +4780,7 @@ parse_args() {
                 echo "  $0 --uninstall                      Revert all changes"
                 echo "  $0 --clean                          Interactive system cleaner"
                 echo "  $0 --clean --dry-run                Preview what would be cleaned"
+                echo "  $0 --version                          Show version"
                 echo "  $0 --clean --force                  Clean without confirmation"
                 exit 0
                 ;;
