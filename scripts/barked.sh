@@ -722,10 +722,13 @@ import sys, json
 try:
     with open(sys.argv[1]) as f:
         config = json.load(f)
-    print(config['enabled'])
+    # Print booleans as lowercase for bash compatibility
+    print(str(config['enabled']).lower())
     print(config['schedule'])
-    print(config['notify'])
-    print(' '.join(config['categories']))
+    print(str(config['notify']).lower())
+    # Print categories one per line to handle spaces correctly
+    for cat in config['categories']:
+        print(cat)
 except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
     sys.exit(1)
 PYEOF
@@ -736,12 +739,13 @@ PYEOF
 
     # Extract values from output (one per line)
     local line_num=0
+    SCHED_CATEGORIES=()  # Clear array before populating
     while IFS= read -r line; do
         case $line_num in
             0) SCHED_ENABLED="$line" ;;
             1) SCHED_SCHEDULE="$line" ;;
             2) SCHED_NOTIFY="$line" ;;
-            3) SCHED_CATEGORIES=($line) ;;
+            *) SCHED_CATEGORIES+=("$line") ;;
         esac
         ((line_num++))
     done <<< "$parse_output"
@@ -759,8 +763,8 @@ save_scheduled_config() {
 
     mkdir -p "$(dirname "$SCHED_CLEAN_CONFIG_USER")" 2>/dev/null
 
-    # Use Python json.dump() for safe JSON generation
-    python3 - "$SCHED_CLEAN_CONFIG_USER" "$enabled" "$schedule" "$custom_interval" "$notify" "${categories[@]}" << 'PYEOF'
+    # Use Python json.dump() for safe JSON generation with error handling
+    if ! python3 - "$SCHED_CLEAN_CONFIG_USER" "$enabled" "$schedule" "$custom_interval" "$notify" "${categories[@]}" 2>/dev/null << 'PYEOF'
 import sys, json
 
 config_file = sys.argv[1]
@@ -768,7 +772,7 @@ enabled = sys.argv[2] == "true"
 schedule = sys.argv[3]
 custom_interval = sys.argv[4]
 notify = sys.argv[5] == "true"
-categories = sys.argv[6:]
+categories = list(sys.argv[6:]) if len(sys.argv) > 6 else []
 
 config = {
     "enabled": enabled,
@@ -783,6 +787,10 @@ config = {
 with open(config_file, 'w') as f:
     json.dump(config, f, indent=2)
 PYEOF
+    then
+        log "ERROR: Failed to save scheduled clean config"
+        return 1
+    fi
 
     # Also save to project directory as backup
     mkdir -p "$(dirname "$SCHED_CLEAN_CONFIG_PROJECT")" 2>/dev/null
