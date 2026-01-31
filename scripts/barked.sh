@@ -5574,10 +5574,10 @@ clean_preview() {
     local total_files=0 total_bytes=0
     echo ""
     echo -e "  ${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "  ${BOLD}${GREEN}║                   CLEANING PREVIEW                       ║${NC}"
+    printf "  ${BOLD}${GREEN}║${NC}%-58s${BOLD}${GREEN}║${NC}\n" "                   CLEANING PREVIEW"
     echo -e "  ${BOLD}${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
-    printf "  ${BOLD}  %-32s %8s %10s %8s${NC}\n" "Target" "Files" "Size" "Status"
-    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
+    printf "  ${BOLD}${GREEN}║${NC} %-33s %7s %9s %7s ${BOLD}${GREEN}║${NC}\n" "Target" "Files" "Size" "Status"
+    printf "  ${BROWN}${GREEN}║${NC} %-56s ${GREEN}║${NC}\n" "────────────────────────────────────────────────────────"
 
     for target in "${ordered_targets[@]}"; do
         local files="${CLEAN_SCAN_FILES[$target]:-0}"
@@ -5601,15 +5601,15 @@ clean_preview() {
         local color="$NC"
         [[ "$status" == "Empty" ]] && color="$BROWN"
 
-        printf "  ${color}  %-32s %8s %10s %8s${NC}\n" \
+        printf "  ${GREEN}║${NC}${color} %-33s %7s %9s %7s ${NC}${GREEN}║${NC}\n" \
             "${CLEAN_TARGET_NAMES[$target]}" "$file_str" "$size_str" "$status"
 
         total_files=$((total_files + files))
         total_bytes=$((total_bytes + bytes))
     done
 
-    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
-    printf "  ${BOLD}  %-32s %8s %10s${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
+    printf "  ${BROWN}${GREEN}║${NC} %-56s ${GREEN}║${NC}\n" "────────────────────────────────────────────────────────"
+    printf "  ${BOLD}${GREEN}║${NC} %-33s %7s %9s ${BOLD}${GREEN}║${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
     echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 
     CLEAN_TOTAL_SCAN_FILES=$total_files
