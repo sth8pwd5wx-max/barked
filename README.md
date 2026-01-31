@@ -33,8 +33,8 @@ Run `barked` from anywhere. The wizard takes it from there.
 ### Update
 
 ```bash
-sudo barked --update              # macOS / Linux
-barked -Update                    # Windows (as Administrator)
+barked --update                   # macOS / Linux
+barked -Update                    # Windows
 ```
 
 Barked also checks for updates after each run and notifies you if a new version is available.
@@ -43,8 +43,8 @@ Barked also checks for updates after each run and notifies you if a new version 
 
 To remove barked itself from your system (not to revert hardening changes):
 ```bash
-sudo barked --uninstall-self      # macOS / Linux
-barked -UninstallSelf             # Windows (as Administrator)
+barked --uninstall-self            # macOS / Linux
+barked -UninstallSelf             # Windows
 ```
 
 ### Manual Install (from source)
@@ -53,7 +53,7 @@ barked -UninstallSelf             # Windows (as Administrator)
 git clone https://github.com/sth8pwd5wx-max/barked
 cd barked
 chmod +x scripts/barked.sh
-sudo ./scripts/barked.sh
+./scripts/barked.sh
 ```
 
 Windows:
@@ -149,9 +149,9 @@ For platform-specific implementation details, see [docs/plans/2026-01-29-hardeni
 Shed the dead wood. Built-in system cleaner for privacy and disk hygiene.
 
 ```bash
-sudo barked --clean              # Interactive cleaning wizard
-sudo barked --clean --dry-run    # Preview what would be cleaned
-sudo barked --clean --force      # Skip confirmation prompt
+barked --clean                   # Interactive cleaning wizard
+barked --clean --dry-run         # Preview what would be cleaned
+barked --clean --force           # Skip confirmation prompt
 ```
 
 Windows:
@@ -175,13 +175,13 @@ Windows:
 
 **Full uninstall** — revert all changes:
 ```bash
-sudo barked --uninstall          # macOS / Linux
+barked --uninstall               # macOS / Linux
 .\barked.ps1 -Uninstall          # Windows
 ```
 
 **Modify** — add or remove individual modules:
 ```bash
-sudo barked --modify             # macOS / Linux
+barked --modify                  # macOS / Linux
 .\barked.ps1 -Modify             # Windows
 ```
 
