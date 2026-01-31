@@ -6198,8 +6198,8 @@ print_clean_summary() {
     echo -e "  ${BOLD}${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "  ${BOLD}${GREEN}║                  CLEANING SUMMARY                        ║${NC}"
     echo -e "  ${BOLD}${GREEN}╠══════════════════════════════════════════════════════════╣${NC}"
-    printf "  ${BOLD}  %-32s %8s %10s %8s${NC}\n" "Target" "Removed" "Freed" "Status"
-    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
+    printf "  ${BOLD}${GREEN}║${NC} %-33s %7s %9s %7s ${BOLD}${GREEN}║${NC}\n" "Target" "Removed" "Freed" "Status"
+    echo -e "  ${GREEN}║${NC}${BROWN}────────────────────────────────────────────────────────${NC}${GREEN}║${NC}"
 
     for target in "${ordered_targets[@]}"; do
         local files="${CLEAN_RESULT_FILES[$target]:-0}"
@@ -6219,15 +6219,15 @@ print_clean_summary() {
             partial) status_str="PARTIAL"; color="$BROWN" ;;
         esac
 
-        printf "  ${color}  %-32s %8s %10s %8s${NC}\n" \
+        printf "  ${GREEN}║${NC}${color} %-33s %7s %9s %7s ${NC}${GREEN}║${NC}\n" \
             "${CLEAN_TARGET_NAMES[$target]}" "$file_str" "$size_str" "$status_str"
 
         total_files=$((total_files + files))
         total_bytes=$((total_bytes + bytes))
     done
 
-    echo -e "  ${BROWN}  ────────────────────────────────────────────────────────${NC}"
-    printf "  ${BOLD}  %-32s %8s %10s${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
+    echo -e "  ${GREEN}║${NC}${BROWN}────────────────────────────────────────────────────────${NC}${GREEN}║${NC}"
+    printf "  ${BOLD}${GREEN}║${NC} %-33s %7s %9s         ${BOLD}${GREEN}║${NC}\n" "TOTAL" "$total_files" "$(format_bytes $total_bytes)"
     echo -e "  ${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
 

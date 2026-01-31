@@ -197,12 +197,12 @@ barked --modify                  # macOS / Linux
 Both options are also available from the wizard menu (`[U]` Uninstall, `[M]` Modify).
 
 The scripts track applied changes in a state file:
-| Platform | System (primary) | Project (copy) |
+| Platform | User (primary) | Project (copy) |
 |---|---|---|
-| macOS / Linux | `/etc/hardening-state.json` | `state/hardening-state.json` |
-| Windows | `C:\ProgramData\hardening-state.json` | `state\hardening-state.json` |
+| macOS / Linux | `~/.config/barked/state.json` | `state/hardening-state.json` |
+| Windows | `%LOCALAPPDATA%\barked\state.json` | `state\hardening-state.json` |
 
-If the state file is missing, the scripts detect applied hardening from live system state.
+Legacy state files (`/etc/hardening-state.json`, `C:\ProgramData\hardening-state.json`) are automatically migrated to userspace on first run. If no state file is found, the scripts detect applied hardening from live system state.
 
 ## File Structure
 
