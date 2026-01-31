@@ -1298,6 +1298,23 @@ send_clean_notification() {
     local file_count=$1
     local bytes_freed=$2
 
+    # Validate inputs are numeric
+    if ! [[ "$file_count" =~ ^[0-9]+$ ]]; then
+        clean_log "WARN" "Invalid file_count for notification: $file_count"
+        return 0  # Non-critical, just skip notification
+    fi
+
+    if ! [[ "$bytes_freed" =~ ^[0-9]+$ ]]; then
+        clean_log "WARN" "Invalid bytes_freed for notification: $bytes_freed"
+        return 0
+    fi
+
+    # Skip notification if nothing was cleaned
+    if [[ $file_count -eq 0 ]] && [[ $bytes_freed -eq 0 ]]; then
+        clean_log "INFO" "No files cleaned, skipping notification"
+        return 0
+    fi
+
     # Convert bytes to human-readable format
     local size_str
     size_str=$(format_bytes "$bytes_freed")
