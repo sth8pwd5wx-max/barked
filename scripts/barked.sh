@@ -1179,18 +1179,28 @@ run_scheduled_clean() {
     fi
 
     # 3. Acquire lock file (prevent concurrent runs)
-    if [[ -f "$lock_file" ]]; then
-        local lock_age=$(($(date +%s) - $(stat -f %m "$lock_file" 2>/dev/null || stat -c %Y "$lock_file" 2>/dev/null || echo 0)))
-        if (( lock_age < lock_timeout )); then
-            log "INFO" "Another clean is already running (lock age: ${lock_age}s), exiting"
-            return 0
+    # Use atomic lock creation to prevent race conditions
+    (set -C; echo $$ > "$lock_file") 2>/dev/null || {
+        # Lock exists, check if stale
+        if [[ -f "$lock_file" ]]; then
+            local lock_age=$(($(date +%s) - $(stat -f %m "$lock_file" 2>/dev/null || stat -c %Y "$lock_file" 2>/dev/null || echo 0)))
+            if (( lock_age < lock_timeout )); then
+                log "INFO" "Another clean is already running (lock age: ${lock_age}s), exiting"
+                return 0
+            else
+                log "WARN" "Stale lock file detected (age: ${lock_age}s), removing"
+                rm -f "$lock_file"
+                # Try to acquire lock again atomically
+                (set -C; echo $$ > "$lock_file") 2>/dev/null || {
+                    log "INFO" "Another clean acquired the lock first, exiting"
+                    return 0
+                }
+            fi
         else
-            log "WARN" "Stale lock file detected (age: ${lock_age}s), removing"
-            rm -f "$lock_file"
+            log "INFO" "Another clean is already running, exiting"
+            return 0
         fi
-    fi
-
-    echo $$ > "$lock_file"
+    }
     trap 'rm -f "$lock_file"' EXIT
 
     # 4. Set categories from config
@@ -1205,6 +1215,17 @@ run_scheduled_clean() {
     done
     for cat in "${SCHED_CATEGORIES[@]}"; do
         CLEAN_CATEGORIES[$cat]=1
+    done
+
+    # Populate CLEAN_TARGETS from enabled categories
+    for cat in "${CLEAN_CAT_ORDER[@]}"; do
+        if [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]]; then
+            for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+                if clean_target_available "$target"; then
+                    CLEAN_TARGETS[$target]=1
+                fi
+            done
+        fi
     done
 
     log "INFO" "Starting scheduled clean: categories=${SCHED_CATEGORIES[*]}"
@@ -1243,18 +1264,28 @@ run_scheduled_clean() {
     fi
 
     # 8. Update last_run timestamp in config
-    if python3 -c "
-import json
-from datetime import datetime
-with open('$SCHED_CLEAN_CONFIG_USER', 'r') as f:
-    config = json.load(f)
-config['last_run'] = datetime.utcnow().isoformat() + 'Z'
-with open('$SCHED_CLEAN_CONFIG_USER', 'w') as f:
-    json.dump(config, f, indent=2)
-" 2>/dev/null; then
-        log "INFO" "Updated last_run timestamp"
+    # Check if config file is writable before attempting update
+    if [[ ! -w "$SCHED_CLEAN_CONFIG_USER" ]]; then
+        log "WARN" "Cannot write to config file (permission denied), skipping timestamp update"
     else
-        log "WARN" "Failed to update last_run timestamp"
+        # Use sys.argv pattern to prevent shell injection
+        if python3 - "$SCHED_CLEAN_CONFIG_USER" 2>/dev/null << 'PYEOF'
+import sys, json
+from datetime import datetime
+try:
+    with open(sys.argv[1], 'r') as f:
+        config = json.load(f)
+    config['last_run'] = datetime.utcnow().isoformat() + 'Z'
+    with open(sys.argv[1], 'w') as f:
+        json.dump(config, f, indent=2)
+except (IOError, OSError, json.JSONDecodeError) as e:
+    sys.exit(1)
+PYEOF
+        then
+            log "INFO" "Updated last_run timestamp"
+        else
+            log "WARN" "Failed to update last_run timestamp"
+        fi
     fi
 
     return 0
