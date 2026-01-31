@@ -6298,7 +6298,7 @@ run_update() {
         exit 1
     fi
 
-    chmod +x "$tmp_file"
+    chmod 755 "$tmp_file"
     run_as_root mv "$tmp_file" "$install_path" 2>/dev/null || {
         run_as_root cp "$tmp_file" "$install_path" 2>/dev/null || {
             echo -e "${RED}Failed to replace ${install_path}.${NC}"

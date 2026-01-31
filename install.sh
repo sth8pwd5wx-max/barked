@@ -112,7 +112,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════
 mkdir -p "$INSTALL_DIR"
 mv "$TMP_FILE" "${INSTALL_DIR}/${BINARY_NAME}"
-chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+chmod 755 "${INSTALL_DIR}/${BINARY_NAME}"
 
 # ═══════════════════════════════════════════════════════════════════
 # VERIFY
