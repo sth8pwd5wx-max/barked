@@ -416,10 +416,6 @@ run_as_root() {
     fi
 }
 
-run_as_user() {
-    "$@"
-}
-
 # Modules that require root for at least one command
 declare -A ROOT_MODULES=(
     [firewall-inbound]=1 [firewall-stealth]=1 [dns-secure]=1
@@ -463,13 +459,13 @@ pkg_install() {
     local pkg="$1"
     case "$OS" in
         macos)
-            run_as_user brew install "$pkg" 2>/dev/null
+            brew install "$pkg" 2>/dev/null
             ;;
         linux)
             case "$DISTRO" in
-                debian) DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" 2>/dev/null ;;
-                fedora) dnf install -y "$pkg" 2>/dev/null ;;
-                arch)   pacman -S --noconfirm "$pkg" 2>/dev/null ;;
+                debian) run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" 2>/dev/null ;;
+                fedora) run_as_root dnf install -y "$pkg" 2>/dev/null ;;
+                arch)   run_as_root pacman -S --noconfirm "$pkg" 2>/dev/null ;;
             esac
             ;;
     esac
@@ -477,7 +473,7 @@ pkg_install() {
 
 pkg_install_cask() {
     if [[ "$OS" == "macos" ]]; then
-        run_as_user brew install --cask "$1" 2>/dev/null
+        brew install --cask "$1" 2>/dev/null
     fi
 }
 
@@ -502,19 +498,19 @@ cask_installed() {
 pkg_uninstall() {
     local pkg="$1"
     case "$OS" in
-        macos)  run_as_user brew uninstall "$pkg" 2>/dev/null ;;
+        macos)  brew uninstall "$pkg" 2>/dev/null ;;
         linux)
             case "$DISTRO" in
-                debian) apt-get remove -y "$pkg" 2>/dev/null ;;
-                fedora) dnf remove -y "$pkg" 2>/dev/null ;;
-                arch)   pacman -R --noconfirm "$pkg" 2>/dev/null ;;
+                debian) run_as_root apt-get remove -y "$pkg" 2>/dev/null ;;
+                fedora) run_as_root dnf remove -y "$pkg" 2>/dev/null ;;
+                arch)   run_as_root pacman -R --noconfirm "$pkg" 2>/dev/null ;;
             esac
             ;;
     esac
 }
 
 cask_uninstall() {
-    [[ "$OS" == "macos" ]] && run_as_user brew uninstall --cask "$1" 2>/dev/null
+    [[ "$OS" == "macos" ]] && brew uninstall --cask "$1" 2>/dev/null
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1214,13 +1210,13 @@ check_module_state() {
     # ── Lock Screen ──────────────────────────────────────────────
     lock-screen)
         if [[ "$OS" == "macos" ]]; then
-            if [[ "$(run_as_user defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]]; then
+            if [[ "$(defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]]; then
                 record_finding "pass" "$mod_id" "Immediate password on lock"
             else
                 record_finding "fail" "$mod_id" "Password delay on lock screen"
             fi
         elif [[ "$OS" == "linux" ]]; then
-            if command -v gsettings &>/dev/null && [[ "$(run_as_user gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]]; then
+            if command -v gsettings &>/dev/null && [[ "$(gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]]; then
                 record_finding "pass" "$mod_id" "Screen lock enabled"
             else
                 record_finding "fail" "$mod_id" "Screen lock not configured"
@@ -1260,7 +1256,7 @@ check_module_state() {
 
     # ── Git Hardening ────────────────────────────────────────────
     git-harden)
-        if [[ "$(run_as_user git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
+        if [[ "$(git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
             record_finding "pass" "$mod_id" "Git commit signing enabled"
         else
             record_finding "fail" "$mod_id" "Git commit signing not enabled"
@@ -1617,13 +1613,13 @@ check_guest_disable() {
 
 check_lock_screen() {
     if [[ "$OS" == "macos" ]]; then
-        if [[ "$(run_as_user defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]]; then
+        if [[ "$(defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]]; then
             CHECK_STATUS="PASS"; CHECK_FINDING="Immediate password on lock"
         else
             CHECK_STATUS="FAIL"; CHECK_FINDING="Password delay on lock screen"
         fi
     elif [[ "$OS" == "linux" ]]; then
-        if command -v gsettings &>/dev/null && [[ "$(run_as_user gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]]; then
+        if command -v gsettings &>/dev/null && [[ "$(gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]]; then
             CHECK_STATUS="PASS"; CHECK_FINDING="Screen lock enabled"
         else
             CHECK_STATUS="FAIL"; CHECK_FINDING="Screen lock not configured"
@@ -1658,7 +1654,7 @@ check_ssh_harden() {
 }
 
 check_git_harden() {
-    if [[ "$(run_as_user git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
+    if [[ "$(git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
         CHECK_STATUS="PASS"; CHECK_FINDING="Git commit signing enabled"
     else
         CHECK_STATUS="FAIL"; CHECK_FINDING="Git commit signing not enabled"
@@ -1907,9 +1903,9 @@ detect_applied_modules() {
 
     # lock-screen
     if [[ "$OS" == "macos" ]]; then
-        [[ "$(run_as_user defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]] && detected+=("lock-screen")
+        [[ "$(defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null)" == "0" ]] && detected+=("lock-screen")
     elif command -v gsettings &>/dev/null; then
-        [[ "$(run_as_user gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]] && detected+=("lock-screen")
+        [[ "$(gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null)" == "true" ]] && detected+=("lock-screen")
     fi
 
     # hostname-scrub
@@ -1925,7 +1921,7 @@ detect_applied_modules() {
     fi
 
     # git-harden
-    if [[ "$(run_as_user git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
+    if [[ "$(git config --global --get commit.gpgsign 2>/dev/null)" == "true" ]]; then
         detected+=("git-harden")
     fi
 
@@ -2582,10 +2578,10 @@ mod_firewall_inbound() {
             MODULE_RESULT="skipped"
             return
         fi
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on &>/dev/null
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall on &>/dev/null
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned off &>/dev/null
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp off &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall on &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned off &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp off &>/dev/null
         if /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null | grep -q "enabled\|State = 1\|State = 2"; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
             log_entry "firewall-inbound" "apply" "ok" "Firewall enabled, block all incoming"
@@ -2605,8 +2601,8 @@ mod_firewall_inbound() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            ufw --force enable &>/dev/null
-            ufw default deny incoming &>/dev/null
+            run_as_root ufw --force enable &>/dev/null
+            run_as_root ufw default deny incoming &>/dev/null
             if ufw status 2>/dev/null | grep -q "Status: active"; then
                 print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (ufw)" "applied"
                 log_entry "firewall-inbound" "apply" "ok" "ufw enabled, default deny incoming"
@@ -2619,8 +2615,8 @@ mod_firewall_inbound() {
         else
             pkg_install ufw
             if command -v ufw &>/dev/null; then
-                ufw --force enable &>/dev/null
-                ufw default deny incoming &>/dev/null
+                run_as_root ufw --force enable &>/dev/null
+                run_as_root ufw default deny incoming &>/dev/null
                 print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (ufw)" "applied"
                 log_entry "firewall-inbound" "apply" "ok" "Installed and enabled ufw"
                 MODULE_RESULT="applied"
@@ -2649,7 +2645,7 @@ mod_dns_secure() {
         fi
         # Save previous DNS for revert
         STATE_PREVIOUS[dns-secure]="$current_dns"
-        networksetup -setdnsservers Wi-Fi 9.9.9.9 149.112.112.112 &>/dev/null
+        run_as_root networksetup -setdnsservers Wi-Fi 9.9.9.9 149.112.112.112 &>/dev/null
         if networksetup -getdnsservers Wi-Fi 2>/dev/null | grep -q "9.9.9.9"; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
             log_entry "dns-secure" "apply" "ok" "Set DNS to Quad9 on Wi-Fi"
@@ -2670,14 +2666,14 @@ mod_dns_secure() {
                 return
             fi
             # Configure systemd-resolved
-            mkdir -p /etc/systemd/resolved.conf.d
-            cat > /etc/systemd/resolved.conf.d/quad9.conf << 'DNSEOF'
+            run_as_root mkdir -p /etc/systemd/resolved.conf.d
+            run_as_root tee /etc/systemd/resolved.conf.d/quad9.conf >/dev/null << 'DNSEOF'
 [Resolve]
 DNS=9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net
 DNSOverTLS=yes
 DNSSEC=yes
 DNSEOF
-            systemctl restart systemd-resolved &>/dev/null
+            run_as_root systemctl restart systemd-resolved &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (systemd-resolved)" "applied"
             log_entry "dns-secure" "apply" "ok" "Configured Quad9 DNS-over-TLS"
             MODULE_RESULT="applied"
@@ -2688,8 +2684,8 @@ DNSEOF
                 MODULE_RESULT="skipped"
                 return
             fi
-            cp /etc/resolv.conf /etc/resolv.conf.bak
-            echo -e "nameserver 9.9.9.9\nnameserver 149.112.112.112" > /etc/resolv.conf
+            run_as_root cp /etc/resolv.conf /etc/resolv.conf.bak
+            echo -e "nameserver 9.9.9.9\nnameserver 149.112.112.112" | run_as_root tee /etc/resolv.conf >/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (resolv.conf)" "applied"
             log_entry "dns-secure" "apply" "ok" "Set resolv.conf to Quad9"
             MODULE_RESULT="applied"
@@ -2715,9 +2711,9 @@ mod_auto_updates() {
             MODULE_RESULT="skipped"
             return
         fi
-        defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
-        defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool true
-        defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall -bool true
+        run_as_root defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true
+        run_as_root defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool true
+        run_as_root defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall -bool true
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
         log_entry "auto-updates" "apply" "ok" "Enabled automatic updates"
         MODULE_RESULT="applied"
@@ -2729,8 +2725,8 @@ mod_auto_updates() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades &>/dev/null
-            dpkg-reconfigure -plow unattended-upgrades &>/dev/null
+            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades &>/dev/null
+            run_as_root dpkg-reconfigure -plow unattended-upgrades &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (unattended-upgrades)" "applied"
             log_entry "auto-updates" "apply" "ok" "Installed unattended-upgrades"
             MODULE_RESULT="applied"
@@ -2741,8 +2737,8 @@ mod_auto_updates() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            dnf install -y dnf-automatic &>/dev/null
-            systemctl enable --now dnf-automatic-install.timer &>/dev/null
+            run_as_root dnf install -y dnf-automatic &>/dev/null
+            run_as_root systemctl enable --now dnf-automatic-install.timer &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (dnf-automatic)" "applied"
             log_entry "auto-updates" "apply" "ok" "Installed dnf-automatic"
             MODULE_RESULT="applied"
@@ -2769,13 +2765,13 @@ mod_guest_disable() {
             MODULE_RESULT="skipped"
             return
         fi
-        defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool false
+        run_as_root defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool false
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
         log_entry "guest-disable" "apply" "ok" "Disabled guest account"
         MODULE_RESULT="applied"
     elif [[ "$OS" == "linux" ]]; then
         if id guest &>/dev/null; then
-            usermod -L guest &>/dev/null 2>&1 || true
+            run_as_root usermod -L guest &>/dev/null 2>&1 || true
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
             log_entry "guest-disable" "apply" "ok" "Locked guest account"
             MODULE_RESULT="applied"
@@ -2794,7 +2790,7 @@ mod_lock_screen() {
     local desc="Configure lock screen (password, timeout)"
     if [[ "$OS" == "macos" ]]; then
         local delay
-        delay=$(run_as_user defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null || echo "999")
+        delay=$(defaults read com.apple.screensaver askForPasswordDelay 2>/dev/null || echo "999")
         if [[ "$delay" == "0" ]]; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
             log_entry "lock-screen" "check" "skip" "Lock screen already configured"
@@ -2802,8 +2798,8 @@ mod_lock_screen() {
             return
         fi
         STATE_PREVIOUS[lock-screen]="$delay"
-        run_as_user defaults write com.apple.screensaver askForPassword -int 1
-        run_as_user defaults write com.apple.screensaver askForPasswordDelay -int 0
+        defaults write com.apple.screensaver askForPassword -int 1
+        defaults write com.apple.screensaver askForPasswordDelay -int 0
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
         log_entry "lock-screen" "apply" "ok" "Set password required immediately"
         MODULE_RESULT="applied"
@@ -2811,16 +2807,16 @@ mod_lock_screen() {
         # Try GNOME settings
         if command -v gsettings &>/dev/null; then
             local lock_enabled
-            lock_enabled=$(run_as_user gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null || echo "")
+            lock_enabled=$(gsettings get org.gnome.desktop.screensaver lock-enabled 2>/dev/null || echo "")
             if [[ "$lock_enabled" == "true" ]]; then
                 print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
                 log_entry "lock-screen" "check" "skip" "GNOME lock screen already enabled"
                 MODULE_RESULT="skipped"
                 return
             fi
-            run_as_user gsettings set org.gnome.desktop.screensaver lock-enabled true 2>/dev/null
-            run_as_user gsettings set org.gnome.desktop.screensaver lock-delay 0 2>/dev/null
-            run_as_user gsettings set org.gnome.desktop.session idle-delay 300 2>/dev/null
+            gsettings set org.gnome.desktop.screensaver lock-enabled true 2>/dev/null
+            gsettings set org.gnome.desktop.screensaver lock-delay 0 2>/dev/null
+            gsettings set org.gnome.desktop.session idle-delay 300 2>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (GNOME)" "applied"
             log_entry "lock-screen" "apply" "ok" "Configured GNOME lock screen"
             MODULE_RESULT="applied"
@@ -2890,7 +2886,6 @@ user_pref("extensions.pocket.enabled", false);
 user_pref("browser.newtabpage.activity-stream.showSponsored", false);
 user_pref("browser.newtabpage.activity-stream.showSponsoredTopSites", false);
 FFEOF
-    chown "${REAL_USER}" "${ff_profile}/user.js" 2>/dev/null
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
     log_entry "browser-basic" "apply" "ok" "Created Firefox user.js with basic hardening"
     MODULE_RESULT="applied"
@@ -2910,22 +2905,22 @@ mod_firewall_stealth() {
             MODULE_RESULT="skipped"
             return
         fi
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on &>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
         log_entry "firewall-stealth" "apply" "ok" "Stealth mode enabled"
         MODULE_RESULT="applied"
     elif [[ "$OS" == "linux" ]]; then
         # Drop ICMP echo requests
-        if iptables -C INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null 2>&1; then
+        if run_as_root iptables -C INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null 2>&1; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (drop ICMP)" "skipped"
             log_entry "firewall-stealth" "check" "skip" "ICMP drop rule already exists"
             MODULE_RESULT="skipped"
             return
         fi
-        iptables -A INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null
+        run_as_root iptables -A INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null
         # Persist if possible
         if command -v iptables-save &>/dev/null; then
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+            run_as_root bash -c 'iptables-save > /etc/iptables/rules.v4' 2>/dev/null || true
         fi
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (drop ICMP)" "applied"
         log_entry "firewall-stealth" "apply" "ok" "Added iptables ICMP drop rule"
@@ -2967,14 +2962,14 @@ mod_firewall_outbound() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            ufw default deny outgoing &>/dev/null
+            run_as_root ufw default deny outgoing &>/dev/null
             # Allow essential outbound
-            ufw allow out 53 &>/dev/null   # DNS
-            ufw allow out 80 &>/dev/null   # HTTP
-            ufw allow out 443 &>/dev/null  # HTTPS
-            ufw allow out 853 &>/dev/null  # DNS-over-TLS
-            ufw allow out 22 &>/dev/null   # SSH
-            ufw reload &>/dev/null
+            run_as_root ufw allow out 53 &>/dev/null   # DNS
+            run_as_root ufw allow out 80 &>/dev/null   # HTTP
+            run_as_root ufw allow out 443 &>/dev/null  # HTTPS
+            run_as_root ufw allow out 853 &>/dev/null  # DNS-over-TLS
+            run_as_root ufw allow out 22 &>/dev/null   # SSH
+            run_as_root ufw reload &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (ufw deny outgoing)" "applied"
             log_entry "firewall-outbound" "apply" "ok" "Set default deny outgoing with essential ports allowed"
             MODULE_RESULT="applied"
@@ -3004,9 +2999,9 @@ mod_hostname_scrub() {
         fi
         # Save previous hostname for revert
         STATE_PREVIOUS[hostname-scrub]="$current"
-        scutil --set ComputerName "$generic"
-        scutil --set LocalHostName "$generic"
-        scutil --set HostName "$generic"
+        run_as_root scutil --set ComputerName "$generic"
+        run_as_root scutil --set LocalHostName "$generic"
+        run_as_root scutil --set HostName "$generic"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($generic)" "applied"
         log_entry "hostname-scrub" "apply" "ok" "Hostname set to $generic"
         MODULE_RESULT="applied"
@@ -3021,7 +3016,7 @@ mod_hostname_scrub() {
             return
         fi
         STATE_PREVIOUS[hostname-scrub]="$current"
-        hostnamectl set-hostname "$generic" &>/dev/null 2>&1 || hostname "$generic" 2>/dev/null
+        run_as_root hostnamectl set-hostname "$generic" &>/dev/null 2>&1 || run_as_root hostname "$generic" 2>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($generic)" "applied"
         log_entry "hostname-scrub" "apply" "ok" "Hostname set to $generic"
         MODULE_RESULT="applied"
@@ -3048,7 +3043,7 @@ mod_ssh_harden() {
 
     # Generate Ed25519 key if none exists
     if [[ ! -f "${ssh_dir}/id_ed25519" ]]; then
-        run_as_user ssh-keygen -t ed25519 -f "${ssh_dir}/id_ed25519" -N "" -q
+        ssh-keygen -t ed25519 -f "${ssh_dir}/id_ed25519" -N "" -q
     fi
 
     cat > "$ssh_config" << 'SSHEOF'
@@ -3071,7 +3066,6 @@ SSHEOF
     fi
 
     chmod 600 "$ssh_config"
-    chown -R "${REAL_USER}" "$ssh_dir" 2>/dev/null
 
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
     log_entry "ssh-harden" "apply" "ok" "SSH config hardened with Ed25519"
@@ -3091,7 +3085,7 @@ mod_git_harden() {
     fi
 
     local signing
-    signing=$(run_as_user git config --global --get commit.gpgsign 2>/dev/null || echo "")
+    signing=$(git config --global --get commit.gpgsign 2>/dev/null || echo "")
     if [[ "$signing" == "true" ]]; then
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
         log_entry "git-harden" "check" "skip" "Git signing already configured"
@@ -3099,17 +3093,17 @@ mod_git_harden() {
         return
     fi
 
-    run_as_user git config --global gpg.format ssh
+    git config --global gpg.format ssh
     if [[ -f "${REAL_HOME}/.ssh/id_ed25519.pub" ]]; then
-        run_as_user git config --global user.signingkey "${REAL_HOME}/.ssh/id_ed25519.pub"
+        git config --global user.signingkey "${REAL_HOME}/.ssh/id_ed25519.pub"
     fi
-    run_as_user git config --global commit.gpgsign true
-    run_as_user git config --global tag.gpgsign true
+    git config --global commit.gpgsign true
+    git config --global tag.gpgsign true
 
     if [[ "$OS" == "macos" ]]; then
-        run_as_user git config --global credential.helper osxkeychain
+        git config --global credential.helper osxkeychain
     elif [[ "$OS" == "linux" ]]; then
-        run_as_user git config --global credential.helper store
+        git config --global credential.helper store
     fi
 
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
@@ -3134,14 +3128,14 @@ mod_telemetry_disable() {
         local changed=false
         # Ubuntu/GNOME telemetry
         if command -v gsettings &>/dev/null; then
-            run_as_user gsettings set org.gnome.desktop.privacy report-technical-problems false 2>/dev/null && changed=true
-            run_as_user gsettings set org.gnome.desktop.privacy send-software-usage-stats false 2>/dev/null && changed=true
+            gsettings set org.gnome.desktop.privacy report-technical-problems false 2>/dev/null && changed=true
+            gsettings set org.gnome.desktop.privacy send-software-usage-stats false 2>/dev/null && changed=true
         fi
         # Disable apport (Ubuntu crash reporter)
         if [[ -f /etc/default/apport ]]; then
-            sed -i 's/enabled=1/enabled=0/' /etc/default/apport 2>/dev/null && changed=true
-            systemctl stop apport.service &>/dev/null 2>&1 || true
-            systemctl disable apport.service &>/dev/null 2>&1 || true
+            run_as_root sed -i 's/enabled=1/enabled=0/' /etc/default/apport 2>/dev/null && changed=true
+            run_as_root systemctl stop apport.service &>/dev/null 2>&1 || true
+            run_as_root systemctl disable apport.service &>/dev/null 2>&1 || true
         fi
         if $changed; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
@@ -3192,24 +3186,24 @@ mod_monitoring_tools() {
                 fedora) pkg_install audit && installed_any=true ;;
                 arch)   pkg_install audit && installed_any=true ;;
             esac
-            systemctl enable --now auditd &>/dev/null 2>&1 || true
+            run_as_root systemctl enable --now auditd &>/dev/null 2>&1 || true
         fi
         # aide (file integrity)
         if ! command -v aide &>/dev/null; then
             pkg_install aide && installed_any=true
-            aide --init &>/dev/null 2>&1 || true
-            cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db &>/dev/null 2>&1 || true
+            run_as_root aide --init &>/dev/null 2>&1 || true
+            run_as_root cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db &>/dev/null 2>&1 || true
         fi
         # rkhunter
         if ! command -v rkhunter &>/dev/null; then
             pkg_install rkhunter && installed_any=true
-            rkhunter --update &>/dev/null 2>&1 || true
-            rkhunter --propupd &>/dev/null 2>&1 || true
+            run_as_root rkhunter --update &>/dev/null 2>&1 || true
+            run_as_root rkhunter --propupd &>/dev/null 2>&1 || true
         fi
         # fail2ban
         if ! command -v fail2ban-client &>/dev/null; then
             pkg_install fail2ban && installed_any=true
-            systemctl enable --now fail2ban &>/dev/null 2>&1 || true
+            run_as_root systemctl enable --now fail2ban &>/dev/null 2>&1 || true
         fi
         if $installed_any; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (auditd, aide, rkhunter, fail2ban)" "applied"
@@ -3265,8 +3259,8 @@ mod_mac_rotate() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            mkdir -p /etc/NetworkManager/conf.d
-            cat > "$nm_conf" << 'MACEOF'
+            run_as_root mkdir -p /etc/NetworkManager/conf.d
+            run_as_root tee "$nm_conf" >/dev/null << 'MACEOF'
 [device]
 wifi.scan-rand-mac-address=yes
 
@@ -3274,7 +3268,7 @@ wifi.scan-rand-mac-address=yes
 wifi.cloned-mac-address=random
 ethernet.cloned-mac-address=random
 MACEOF
-            systemctl restart NetworkManager &>/dev/null 2>&1 || true
+            run_as_root systemctl restart NetworkManager &>/dev/null 2>&1 || true
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (NetworkManager)" "applied"
             log_entry "mac-rotate" "apply" "ok" "Enabled MAC randomization"
             MODULE_RESULT="applied"
@@ -3378,7 +3372,6 @@ user_pref("network.dns.disablePrefetch", true);
 user_pref("network.http.speculative-parallel-limit", 0);
 user_pref("browser.urlbar.speculativeConnect.enabled", false);
 FPEOF
-    chown "${REAL_USER}" "${ff_profile}/user.js" 2>/dev/null
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
     log_entry "browser-fingerprint" "apply" "ok" "Added fingerprint resistance + clear-on-shutdown"
     MODULE_RESULT="applied"
@@ -3494,7 +3487,7 @@ echo '```'
 echo "SIP: $(csrutil status 2>/dev/null)"
 echo "FileVault: $(fdesetup status 2>/dev/null)"
 echo "Gatekeeper: $(/usr/sbin/spctl --status 2>/dev/null)"
-echo "Firewall: $(sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null)"
+echo "Firewall: $(/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null)"
 echo '```'
 echo ""
 echo "## Network"
@@ -3554,8 +3547,7 @@ AUDITEOF
 </dict>
 </plist>
 PLISTEOF
-        chown "${REAL_USER}" "$plist"
-        run_as_user launchctl load "$plist" &>/dev/null 2>&1 || true
+        launchctl load "$plist" &>/dev/null 2>&1 || true
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (launchd, Mondays 10 AM)" "applied"
         log_entry "audit-script" "apply" "ok" "Weekly audit scheduled"
         MODULE_RESULT="applied"
@@ -3672,7 +3664,7 @@ mod_bluetooth_disable() {
     elif [[ "$OS" == "linux" ]]; then
         if systemctl is-active bluetooth &>/dev/null 2>&1; then
             if prompt_yn "Disable Bluetooth service? (You can re-enable later)"; then
-                systemctl disable --now bluetooth &>/dev/null 2>&1
+                run_as_root systemctl disable --now bluetooth &>/dev/null 2>&1
                 print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
                 log_entry "bluetooth-disable" "apply" "ok" "Bluetooth service disabled"
                 MODULE_RESULT="applied"
@@ -3781,8 +3773,8 @@ mod_kernel_sysctl() {
         for param in "${SYSCTL_PARAMS[@]}"; do
             echo "${param%%=*} = ${param#*=}"
         done
-    } > "$conf_file"
-    sysctl --system &>/dev/null
+    } | run_as_root tee "$conf_file" >/dev/null
+    run_as_root sysctl --system &>/dev/null
     state_set_module "kernel-sysctl" "applied" "$prev_values"
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
     log_entry "kernel-sysctl" "apply" "applied" "Sysctl parameters hardened"
@@ -3844,7 +3836,7 @@ mod_apparmor_enforce() {
     fi
     local complain_profiles; complain_profiles=$(aa-status 2>/dev/null | awk '/complain/{ print $1 }')
     state_set_module "apparmor-enforce" "applied" "$complain_profiles"
-    aa-enforce /etc/apparmor.d/* &>/dev/null
+    run_as_root aa-enforce /etc/apparmor.d/* &>/dev/null
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
     log_entry "apparmor-enforce" "apply" "applied" "All profiles set to enforce"
     MODULE_RESULT="applied"
@@ -3903,13 +3895,13 @@ mod_boot_security() {
     read -rs grub_pass; echo ""
     local grub_hash; grub_hash=$(echo -e "${grub_pass}\n${grub_pass}" | grub-mkpasswd-pbkdf2 2>/dev/null | grep "grub.pbkdf2" | awk '{print $NF}')
     if [[ -n "$grub_hash" ]]; then
-        [[ -f /etc/grub.d/40_custom ]] && cp /etc/grub.d/40_custom /etc/grub.d/40_custom.bak.hardening
-        cat >> /etc/grub.d/40_custom << GRUBEOF
+        [[ -f /etc/grub.d/40_custom ]] && run_as_root cp /etc/grub.d/40_custom /etc/grub.d/40_custom.bak.hardening
+        run_as_root tee -a /etc/grub.d/40_custom >/dev/null << GRUBEOF
 # Added by barked.sh v${VERSION}
 set superusers="admin"
 password_pbkdf2 admin ${grub_hash}
 GRUBEOF
-        update-grub &>/dev/null || grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
+        run_as_root update-grub &>/dev/null || run_as_root grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
         state_set_module "boot-security" "applied" "grub-password-set"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (GRUB password set)" "applied"
         log_entry "boot-security" "apply" "applied" "GRUB password configured"
@@ -3938,16 +3930,16 @@ revert_disk_encrypt() {
 revert_firewall_inbound() {
     local desc="Disable inbound firewall"
     if [[ "$OS" == "macos" ]]; then
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off &>/dev/null
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall off &>/dev/null
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned on &>/dev/null
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp on &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall off &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned on &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsignedapp on &>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "firewall-inbound" "revert" "ok" "Firewall disabled"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
         if command -v ufw &>/dev/null; then
-            ufw --force disable &>/dev/null
+            run_as_root ufw --force disable &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (ufw)" "reverted"
             log_entry "firewall-inbound" "revert" "ok" "ufw disabled"
             MODULE_RESULT="reverted"
@@ -3963,22 +3955,22 @@ revert_dns_secure() {
     local prev="${STATE_PREVIOUS[dns-secure]:-}"
     if [[ "$OS" == "macos" ]]; then
         if [[ -n "$prev" && "$prev" != "null" ]]; then
-            networksetup -setdnsservers Wi-Fi $prev &>/dev/null
+            run_as_root networksetup -setdnsservers Wi-Fi $prev &>/dev/null
         else
-            networksetup -setdnsservers Wi-Fi Empty &>/dev/null
+            run_as_root networksetup -setdnsservers Wi-Fi Empty &>/dev/null
         fi
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "dns-secure" "revert" "ok" "DNS reset${prev:+ to $prev}"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
         if [[ -f /etc/systemd/resolved.conf.d/quad9.conf ]]; then
-            rm -f /etc/systemd/resolved.conf.d/quad9.conf
-            systemctl restart systemd-resolved &>/dev/null 2>&1 || true
+            run_as_root rm -f /etc/systemd/resolved.conf.d/quad9.conf
+            run_as_root systemctl restart systemd-resolved &>/dev/null 2>&1 || true
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (systemd-resolved)" "reverted"
             log_entry "dns-secure" "revert" "ok" "Removed Quad9 config"
             MODULE_RESULT="reverted"
         elif [[ -f /etc/resolv.conf.bak ]]; then
-            cp /etc/resolv.conf.bak /etc/resolv.conf
+            run_as_root cp /etc/resolv.conf.bak /etc/resolv.conf
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (resolv.conf)" "reverted"
             log_entry "dns-secure" "revert" "ok" "Restored resolv.conf backup"
             MODULE_RESULT="reverted"
@@ -4006,13 +3998,13 @@ revert_auto_updates() {
 revert_guest_disable() {
     local desc="Re-enable guest account"
     if [[ "$OS" == "macos" ]]; then
-        defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool true
+        run_as_root defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool true
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "guest-disable" "revert" "ok" "Guest account re-enabled"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
         if id guest &>/dev/null; then
-            usermod -U guest &>/dev/null 2>&1 || true
+            run_as_root usermod -U guest &>/dev/null 2>&1 || true
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
             log_entry "guest-disable" "revert" "ok" "Guest account unlocked"
             MODULE_RESULT="reverted"
@@ -4028,15 +4020,15 @@ revert_lock_screen() {
     if [[ "$OS" == "macos" ]]; then
         local prev="${STATE_PREVIOUS[lock-screen]:-}"
         local delay="${prev:-5}"
-        run_as_user defaults write com.apple.screensaver askForPasswordDelay -int "$delay"
+        defaults write com.apple.screensaver askForPasswordDelay -int "$delay"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "lock-screen" "revert" "ok" "Screensaver delay reset to ${delay}s"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
         if command -v gsettings &>/dev/null; then
-            run_as_user gsettings reset org.gnome.desktop.screensaver lock-enabled 2>/dev/null
-            run_as_user gsettings reset org.gnome.desktop.screensaver lock-delay 2>/dev/null
-            run_as_user gsettings reset org.gnome.desktop.session idle-delay 2>/dev/null
+            gsettings reset org.gnome.desktop.screensaver lock-enabled 2>/dev/null
+            gsettings reset org.gnome.desktop.screensaver lock-delay 2>/dev/null
+            gsettings reset org.gnome.desktop.session idle-delay 2>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (GNOME)" "reverted"
             log_entry "lock-screen" "revert" "ok" "GNOME lock screen reset to defaults"
             MODULE_RESULT="reverted"
@@ -4071,15 +4063,15 @@ revert_browser_basic() {
 revert_firewall_stealth() {
     local desc="Disable firewall stealth mode"
     if [[ "$OS" == "macos" ]]; then
-        /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode off &>/dev/null
+        run_as_root /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode off &>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "firewall-stealth" "revert" "ok" "Stealth mode disabled"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
-        if iptables -C INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null 2>&1; then
-            iptables -D INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null
+        if run_as_root iptables -C INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null 2>&1; then
+            run_as_root iptables -D INPUT -p icmp --icmp-type echo-request -j DROP &>/dev/null
             if command -v iptables-save &>/dev/null; then
-                iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+                run_as_root bash -c 'iptables-save > /etc/iptables/rules.v4' 2>/dev/null || true
             fi
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (ICMP)" "reverted"
             log_entry "firewall-stealth" "revert" "ok" "Removed ICMP drop rule"
@@ -4109,13 +4101,13 @@ revert_firewall_outbound() {
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
         if command -v ufw &>/dev/null; then
-            ufw default allow outgoing &>/dev/null
-            ufw delete allow out 53 &>/dev/null 2>&1 || true
-            ufw delete allow out 80 &>/dev/null 2>&1 || true
-            ufw delete allow out 443 &>/dev/null 2>&1 || true
-            ufw delete allow out 853 &>/dev/null 2>&1 || true
-            ufw delete allow out 22 &>/dev/null 2>&1 || true
-            ufw reload &>/dev/null
+            run_as_root ufw default allow outgoing &>/dev/null
+            run_as_root ufw delete allow out 53 &>/dev/null 2>&1 || true
+            run_as_root ufw delete allow out 80 &>/dev/null 2>&1 || true
+            run_as_root ufw delete allow out 443 &>/dev/null 2>&1 || true
+            run_as_root ufw delete allow out 853 &>/dev/null 2>&1 || true
+            run_as_root ufw delete allow out 22 &>/dev/null 2>&1 || true
+            run_as_root ufw reload &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (ufw)" "reverted"
             log_entry "firewall-outbound" "revert" "ok" "ufw default allow outgoing restored"
             MODULE_RESULT="reverted"
@@ -4137,14 +4129,14 @@ revert_hostname_scrub() {
         return
     fi
     if [[ "$OS" == "macos" ]]; then
-        scutil --set ComputerName "$prev"
-        scutil --set LocalHostName "$prev"
-        scutil --set HostName "$prev"
+        run_as_root scutil --set ComputerName "$prev"
+        run_as_root scutil --set LocalHostName "$prev"
+        run_as_root scutil --set HostName "$prev"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($prev)" "reverted"
         log_entry "hostname-scrub" "revert" "ok" "Hostname restored to $prev"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
-        hostnamectl set-hostname "$prev" &>/dev/null 2>&1 || hostname "$prev" 2>/dev/null
+        run_as_root hostnamectl set-hostname "$prev" &>/dev/null 2>&1 || run_as_root hostname "$prev" 2>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($prev)" "reverted"
         log_entry "hostname-scrub" "revert" "ok" "Hostname restored to $prev"
         MODULE_RESULT="reverted"
@@ -4181,7 +4173,6 @@ for line in lines:
         else
             rm -f "$ssh_config" "$tmp"
         fi
-        chown "${REAL_USER}" "$ssh_config" 2>/dev/null || true
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "ssh-harden" "revert" "ok" "Removed hardened SSH config entries"
         MODULE_RESULT="reverted"
@@ -4198,10 +4189,10 @@ revert_git_harden() {
         MODULE_RESULT="skipped"
         return
     fi
-    run_as_user git config --global --unset gpg.format 2>/dev/null || true
-    run_as_user git config --global --unset user.signingkey 2>/dev/null || true
-    run_as_user git config --global --unset commit.gpgsign 2>/dev/null || true
-    run_as_user git config --global --unset tag.gpgsign 2>/dev/null || true
+    git config --global --unset gpg.format 2>/dev/null || true
+    git config --global --unset user.signingkey 2>/dev/null || true
+    git config --global --unset commit.gpgsign 2>/dev/null || true
+    git config --global --unset tag.gpgsign 2>/dev/null || true
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
     log_entry "git-harden" "revert" "ok" "Git signing config removed"
     MODULE_RESULT="reverted"
@@ -4218,13 +4209,13 @@ revert_telemetry_disable() {
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
         if command -v gsettings &>/dev/null; then
-            run_as_user gsettings reset org.gnome.desktop.privacy report-technical-problems 2>/dev/null
-            run_as_user gsettings reset org.gnome.desktop.privacy send-software-usage-stats 2>/dev/null
+            gsettings reset org.gnome.desktop.privacy report-technical-problems 2>/dev/null
+            gsettings reset org.gnome.desktop.privacy send-software-usage-stats 2>/dev/null
         fi
         if [[ -f /etc/default/apport ]]; then
-            sed -i 's/enabled=0/enabled=1/' /etc/default/apport 2>/dev/null || true
-            systemctl enable apport.service &>/dev/null 2>&1 || true
-            systemctl start apport.service &>/dev/null 2>&1 || true
+            run_as_root sed -i 's/enabled=0/enabled=1/' /etc/default/apport 2>/dev/null || true
+            run_as_root systemctl enable apport.service &>/dev/null 2>&1 || true
+            run_as_root systemctl start apport.service &>/dev/null 2>&1 || true
         fi
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "telemetry-disable" "revert" "ok" "Re-enabled telemetry"
@@ -4277,8 +4268,8 @@ revert_mac_rotate() {
         MODULE_RESULT="manual"
     elif [[ "$OS" == "linux" ]]; then
         if [[ -f /etc/NetworkManager/conf.d/mac-randomize.conf ]]; then
-            rm -f /etc/NetworkManager/conf.d/mac-randomize.conf
-            systemctl restart NetworkManager &>/dev/null 2>&1 || true
+            run_as_root rm -f /etc/NetworkManager/conf.d/mac-randomize.conf
+            run_as_root systemctl restart NetworkManager &>/dev/null 2>&1 || true
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (NetworkManager)" "reverted"
             log_entry "mac-rotate" "revert" "ok" "Removed MAC randomization config"
             MODULE_RESULT="reverted"
@@ -4328,7 +4319,6 @@ revert_browser_fingerprint() {
         sed '/Advanced Fingerprint Resistance/,$ d' "${ff_profile}/user.js" > "$tmp" 2>/dev/null
         if [[ -s "$tmp" ]]; then
             mv "$tmp" "${ff_profile}/user.js"
-            chown "${REAL_USER}" "${ff_profile}/user.js" 2>/dev/null
         else
             # If nothing left, remove the whole file
             rm -f "${ff_profile}/user.js" "$tmp"
@@ -4385,7 +4375,7 @@ revert_audit_script() {
     if [[ "$OS" == "macos" ]]; then
         local plist="${REAL_HOME}/Library/LaunchAgents/com.secure.weekly-audit.plist"
         if [[ -f "$plist" ]]; then
-            run_as_user launchctl unload "$plist" &>/dev/null 2>&1 || true
+            launchctl unload "$plist" &>/dev/null 2>&1 || true
             rm -f "$plist"
         fi
         rm -f "${SCRIPT_DIR}/weekly-audit-generated.sh"
@@ -4427,7 +4417,7 @@ revert_bluetooth_disable() {
         pause_guide "Re-enable Bluetooth via Control Center or System Settings > Bluetooth."
         MODULE_RESULT="manual"
     elif [[ "$OS" == "linux" ]]; then
-        systemctl enable --now bluetooth &>/dev/null 2>&1
+        run_as_root systemctl enable --now bluetooth &>/dev/null 2>&1
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "bluetooth-disable" "revert" "ok" "Bluetooth service re-enabled"
         MODULE_RESULT="reverted"
@@ -4441,8 +4431,8 @@ revert_kernel_sysctl() {
     fi
     local conf_file="/etc/sysctl.d/99-hardening.conf"
     if [[ -f "$conf_file" ]]; then
-        rm -f "$conf_file"
-        sysctl --system &>/dev/null
+        run_as_root rm -f "$conf_file"
+        run_as_root sysctl --system &>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "kernel-sysctl" "revert" "ok" "Removed sysctl hardening config"
         MODULE_RESULT="reverted"
@@ -4468,7 +4458,7 @@ revert_apparmor_enforce() {
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "skipped"
         MODULE_RESULT="skipped"; return
     fi
-    aa-complain /etc/apparmor.d/* &>/dev/null
+    run_as_root aa-complain /etc/apparmor.d/* &>/dev/null
     print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
     log_entry "apparmor-enforce" "revert" "ok" "All profiles set to complain"
     MODULE_RESULT="reverted"
@@ -4487,8 +4477,8 @@ revert_boot_security() {
         MODULE_RESULT="skipped"; return
     fi
     if [[ -f /etc/grub.d/40_custom.bak.hardening ]]; then
-        mv /etc/grub.d/40_custom.bak.hardening /etc/grub.d/40_custom
-        update-grub &>/dev/null || grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
+        run_as_root mv /etc/grub.d/40_custom.bak.hardening /etc/grub.d/40_custom
+        run_as_root update-grub &>/dev/null || run_as_root grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (GRUB password removed)" "reverted"
         log_entry "boot-security" "revert" "ok" "Restored GRUB config backup"
         MODULE_RESULT="reverted"
@@ -5669,7 +5659,7 @@ clean_diagnostic_reports() {
 
 clean_dns_cache() {
     if [[ "$OS" == "macos" ]]; then
-        dscacheutil -flushcache 2>/dev/null && sudo killall -HUP mDNSResponder 2>/dev/null
+        run_as_root dscacheutil -flushcache 2>/dev/null && run_as_root killall -HUP mDNSResponder 2>/dev/null
         clean_log "CLEAN" "Flushed DNS cache (dscacheutil + mDNSResponder)"
     else
         if command -v systemd-resolve &>/dev/null; then
