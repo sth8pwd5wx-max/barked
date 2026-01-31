@@ -1292,10 +1292,42 @@ PYEOF
 }
 
 # ───────────────────────────────────────────────────────────────────
-# send_clean_notification: Send notification about clean results (stub)
+# send_clean_notification: Send notification about clean results
 # ───────────────────────────────────────────────────────────────────
 send_clean_notification() {
-    echo "  ${BROWN}Notification will be implemented in Task 7${NC}"
+    local file_count=$1
+    local bytes_freed=$2
+
+    # Convert bytes to human-readable format
+    local size_str
+    size_str=$(format_bytes "$bytes_freed")
+
+    # Platform-specific notification
+    case "$OS" in
+        macos)
+            # macOS: Use osascript for native notifications
+            if ! osascript -e "display notification \"🧹 Cleaned ${size_str} from ${file_count} files\" with title \"Barked Cleaner\" subtitle \"Scheduled cleaning complete\"" 2>/dev/null; then
+                # Notification failed - log but don't error out
+                clean_log "INFO" "Notification system unavailable (osascript failed)"
+            fi
+            ;;
+        linux)
+            # Linux: Use notify-send if available
+            if command -v notify-send &>/dev/null; then
+                if ! notify-send "Barked Cleaner" "🧹 Cleaned ${size_str} from ${file_count} files" 2>/dev/null; then
+                    clean_log "INFO" "Notification failed (notify-send error)"
+                fi
+            else
+                # notify-send not available - just log
+                clean_log "INFO" "Notification system unavailable (notify-send not found)"
+            fi
+            ;;
+        *)
+            # Windows or unknown platform - not yet implemented
+            # TODO: Windows notification support
+            clean_log "INFO" "Notifications not supported on this platform"
+            ;;
+    esac
 }
 
 # ═══════════════════════════════════════════════════════════════════
