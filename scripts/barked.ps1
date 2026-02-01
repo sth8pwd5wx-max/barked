@@ -214,6 +214,126 @@ function Save-ScheduledConfig {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# SCHEDULED CLEAN: SETUP WIZARD
+# ═══════════════════════════════════════════════════════════════════
+
+function Install-CleanScheduledTask {
+    param([string]$Schedule)
+
+    $scriptPath = $MyInvocation.ScriptName
+    if (-not $scriptPath) { $scriptPath = $PSCommandPath }
+    if (-not $scriptPath) { $scriptPath = Join-Path $script:ScriptDir "barked.ps1" }
+
+    # Find pwsh or powershell
+    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+    if (-not $pwshPath) { $pwshPath = (Get-Command powershell -ErrorAction SilentlyContinue).Source }
+    if (-not $pwshPath) { $pwshPath = "powershell.exe" }
+
+    $action = New-ScheduledTaskAction -Execute $pwshPath -Argument "-NonInteractive -NoProfile -File `"$scriptPath`" -CleanScheduled"
+
+    if ($Schedule -eq "daily") {
+        $trigger = New-ScheduledTaskTrigger -Daily -At "2:00AM"
+    } else {
+        $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "2:00AM"
+    }
+
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+    try {
+        # Remove existing task if present
+        Unregister-ScheduledTask -TaskName $script:SchedTaskName -Confirm:$false -ErrorAction SilentlyContinue
+        Register-ScheduledTask -TaskName $script:SchedTaskName -Action $action -Trigger $trigger -Settings $settings -Description "Barked automated system cleaning" -ErrorAction Stop | Out-Null
+        Write-Host "  " -NoNewline; Write-ColorLine "Task Scheduler entry created" Green
+    } catch {
+        Write-Host "  ERROR: Failed to register scheduled task: $_" -ForegroundColor Red
+        Write-Host "  Try running as Administrator to register scheduled tasks." -ForegroundColor DarkYellow
+    }
+}
+
+function Setup-ScheduledClean {
+    Print-Section "Scheduled Cleaning Setup"
+
+    Write-Host "  Configure automatic system cleaning" -ForegroundColor White
+    Write-Host ""
+
+    # Step 1: Category selection (reuse existing picker)
+    Write-Host "  Step 1/3: Select categories to clean automatically" -ForegroundColor White
+    Write-Host ""
+    Show-CleanPicker
+
+    # Capture selected categories
+    $selectedCats = @()
+    foreach ($cat in $script:CleanCatOrder) {
+        if ($script:CleanCategories[$cat]) {
+            $selectedCats += $cat
+        }
+    }
+
+    if ($selectedCats.Count -eq 0) {
+        Write-Host "  No categories selected. Setup cancelled." -ForegroundColor Red
+        return
+    }
+
+    Write-Host ""
+    Write-Host "  Selected $($selectedCats.Count) categories" -ForegroundColor Green
+    Write-Host ""
+
+    # Step 2: Schedule frequency
+    Write-Host "  Step 2/3: How often should automated cleaning run?" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  " -NoNewline; Write-Color "[1]" Green; Write-Host " Daily (every day at 2:00 AM)"
+    Write-Host "  " -NoNewline; Write-Color "[2]" Green; Write-Host " Weekly (Sunday at 2:00 AM)"
+    Write-Host ""
+
+    $schedule = ""
+    while ($true) {
+        Write-Host "  Choice: " -NoNewline -ForegroundColor White
+        $schedChoice = Read-Host
+        switch ($schedChoice) {
+            "1" { $schedule = "daily"; break }
+            "2" { $schedule = "weekly"; break }
+            default { Write-Host "  Invalid choice. Enter 1-2." -ForegroundColor Red }
+        }
+        if ($schedule) { break }
+    }
+
+    Write-Host ""
+
+    # Step 3: Notification preference
+    Write-Host "  Step 3/3: Show notification when cleaning completes?" -ForegroundColor White
+    Write-Host "  [Y/n]: " -NoNewline -ForegroundColor White
+    $notifyInput = Read-Host
+    $notify = $notifyInput.ToLower() -ne "n"
+
+    Write-Host ""
+
+    # Confirmation summary
+    $schedDisplay = if ($schedule -eq "daily") { "Daily at 2:00 AM" } else { "Weekly (Sunday 2:00 AM)" }
+    $catNames = ($selectedCats | ForEach-Object { $script:CleanCatNames[$_] }) -join ", "
+    if ($catNames.Length -gt 41) { $catNames = $catNames.Substring(0, 38) + "..." }
+    $notifyDisplay = if ($notify) { "Yes" } else { "No" }
+
+    Write-ColorLine "  ╔══════════════════════════════════════════════════════════╗" Green
+    Write-Host "  " -NoNewline; Write-Color "║" Green; Write-Host "      SCHEDULED CLEANING CONFIGURED                       " -NoNewline; Write-ColorLine "║" Green
+    Write-ColorLine "  ╠══════════════════════════════════════════════════════════╣" Green
+    Write-Host "  " -NoNewline; Write-Color "║" Green; Write-Host (" Categories: {0,-44}" -f $catNames) -NoNewline; Write-ColorLine "║" Green
+    Write-Host "  " -NoNewline; Write-Color "║" Green; Write-Host (" Schedule:   {0,-44}" -f $schedDisplay) -NoNewline; Write-ColorLine "║" Green
+    Write-Host "  " -NoNewline; Write-Color "║" Green; Write-Host (" Notify:     {0,-44}" -f $notifyDisplay) -NoNewline; Write-ColorLine "║" Green
+    Write-ColorLine "  ╚══════════════════════════════════════════════════════════╝" Green
+    Write-Host ""
+
+    # Save config
+    Save-ScheduledConfig -Enabled $true -Schedule $schedule -Notify $notify -Categories $selectedCats
+
+    # Install scheduler
+    Install-CleanScheduledTask -Schedule $schedule
+
+    Write-Host ""
+    Write-Host "  Scheduled cleaning configured" -ForegroundColor Green
+    Write-Host ""
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # OUTPUT UTILITIES
 # ═══════════════════════════════════════════════════════════════════
 function Write-Color {
