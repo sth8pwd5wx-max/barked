@@ -2926,7 +2926,7 @@ select_profile() {
             4) PROFILE="advanced"; run_questionnaire; break ;;
             m) RUN_MODE="modify"; break ;;
             c) CLEAN_MODE=true; break ;;
-            s) setup_scheduled_clean; break ;;
+            s) setup_scheduled_clean; return ;;
             u) RUN_MODE="uninstall"; break ;;
             q) echo "Exiting."; exit 0 ;;
             *) echo -e "  ${RED}Invalid choice.${NC}" ;;
