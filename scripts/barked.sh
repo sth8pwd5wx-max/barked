@@ -5207,10 +5207,12 @@ run_uninstall() {
 
     # Remove scheduled cleaner if configured
     if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]] || [[ -f "$SCHED_CLEAN_CONFIG_PROJECT" ]]; then
-        echo "Removing scheduled cleaner..."
-        unschedule_clean
-        # Remove config files
-        rm -f "$SCHED_CLEAN_CONFIG_USER" "$SCHED_CLEAN_CONFIG_PROJECT"
+        echo -e "  ${BROWN}Removing scheduled cleaner...${NC}"
+        if unschedule_clean 2>/dev/null; then
+            echo -e "  ${GREEN}✓ Scheduled cleaner removed${NC}"
+        else
+            echo -e "  ${RED}✗ Failed to remove scheduler - may need manual cleanup${NC}"
+        fi
     fi
 
     # Load state
