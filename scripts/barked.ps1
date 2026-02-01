@@ -4794,6 +4794,22 @@ function Main {
         Write-Host "barked v$($script:VERSION)"
         exit 0
     }
+    # Validate flag combinations
+    if ($Auto -and -not $Profile) {
+        Write-Host "Error: -Auto requires -Profile <name>" -ForegroundColor Red
+        exit 1
+    }
+    if ($Profile -and $Profile -notin @("standard", "high", "paranoid")) {
+        Write-Host "Error: -Profile must be one of: standard, high, paranoid (got '$Profile')" -ForegroundColor Red
+        exit 1
+    }
+    if ($Quiet -and -not $Auto -and -not $Audit) {
+        Write-Host "Error: -Quiet requires -Auto or -Audit" -ForegroundColor Red
+        exit 1
+    }
+    if ($Quiet) {
+        $script:QuietMode = $true
+    }
     if ($Update) {
         Invoke-Update
     }
