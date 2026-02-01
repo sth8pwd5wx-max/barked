@@ -5205,6 +5205,14 @@ revert_boot_security() {
 run_uninstall() {
     print_section "Full Uninstall"
 
+    # Remove scheduled cleaner if configured
+    if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]] || [[ -f "$SCHED_CLEAN_CONFIG_PROJECT" ]]; then
+        echo "Removing scheduled cleaner..."
+        unschedule_clean
+        # Remove config files
+        rm -f "$SCHED_CLEAN_CONFIG_USER" "$SCHED_CLEAN_CONFIG_PROJECT"
+    fi
+
     # Load state
     local applied_count=0
     if state_read; then
