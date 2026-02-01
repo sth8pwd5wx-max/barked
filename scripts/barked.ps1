@@ -14,7 +14,8 @@ param(
     [switch]$Version,
     [switch]$Update,
     [switch]$UninstallSelf,
-    [switch]$Elevated
+    [switch]$Elevated,
+    [switch]$Audit
 )
 
 Set-StrictMode -Version Latest
@@ -50,6 +51,11 @@ $script:ModuleResult = ""
 $script:RunMode = "harden"
 $script:ModuleMode = "apply"
 $script:RemovePackages = $false
+
+# Audit mode globals
+$script:FindingsStatus = @()
+$script:FindingsModule = @()
+$script:FindingsMessage = @()
 
 # State file paths
 $script:StateFileUser = Join-Path $env:APPDATA "barked\state.json"
@@ -485,6 +491,502 @@ function Detect-AppliedModules {
             }
         }
     }
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIT: SEVERITY & SCORING
+# ═══════════════════════════════════════════════════════════════════
+$script:ModuleSeverity = @{
+    'disk-encrypt' = 'CRITICAL'; 'firewall-inbound' = 'CRITICAL'
+    'auto-updates' = 'CRITICAL'; 'lock-screen' = 'CRITICAL'
+    'firewall-stealth' = 'HIGH'; 'firewall-outbound' = 'HIGH'
+    'dns-secure' = 'HIGH'; 'ssh-harden' = 'HIGH'
+    'guest-disable' = 'HIGH'; 'telemetry-disable' = 'HIGH'
+    'hostname-scrub' = 'MEDIUM'; 'git-harden' = 'MEDIUM'
+    'browser-basic' = 'MEDIUM'; 'monitoring-tools' = 'MEDIUM'
+    'permissions-audit' = 'MEDIUM'
+    'browser-fingerprint' = 'LOW'; 'mac-rotate' = 'LOW'
+    'vpn-killswitch' = 'LOW'; 'traffic-obfuscation' = 'LOW'
+    'metadata-strip' = 'LOW'; 'dev-isolation' = 'LOW'
+    'audit-script' = 'LOW'; 'backup-guidance' = 'LOW'
+    'border-prep' = 'LOW'; 'bluetooth-disable' = 'LOW'
+}
+
+$script:ModuleSeverityWeight = @{
+    'CRITICAL' = 10; 'HIGH' = 7; 'MEDIUM' = 4; 'LOW' = 2
+}
+
+function Get-SeverityWeight {
+    param([string]$ModId)
+    $sev = $script:ModuleSeverity[$ModId]
+    if (-not $sev) { $sev = 'LOW' }
+    return $script:ModuleSeverityWeight[$sev]
+}
+
+function Calculate-Score {
+    param([string[]]$AllMods, [string[]]$PassingMods)
+    $totalWeight = 0; $appliedWeight = 0
+    $totalCount = 0; $appliedCount = 0
+    $passSet = @{}
+    foreach ($m in $PassingMods) { $passSet[$m] = $true }
+    foreach ($modId in $AllMods) {
+        $w = Get-SeverityWeight $modId
+        $totalWeight += $w
+        $totalCount++
+        if ($passSet.ContainsKey($modId)) {
+            $appliedWeight += $w
+            $appliedCount++
+        }
+    }
+    $pct = 0
+    if ($totalWeight -gt 0) { $pct = [math]::Floor(($appliedWeight * 100) / $totalWeight) }
+    return @{
+        AppliedWeight = $appliedWeight; TotalWeight = $totalWeight
+        Percentage = $pct; AppliedCount = $appliedCount; TotalCount = $totalCount
+    }
+}
+
+function Record-Finding {
+    param([string]$Status, [string]$ModId, [string]$Message)
+    $script:FindingsStatus += $Status
+    $script:FindingsModule += $ModId
+    $script:FindingsMessage += $Message
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIT: CHECK FUNCTIONS (non-destructive)
+# ═══════════════════════════════════════════════════════════════════
+
+function Check-disk-encrypt {
+    try {
+        $bl = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop
+        if ($bl.ProtectionStatus -eq "On") {
+            Record-Finding "PASS" "disk-encrypt" "BitLocker enabled on C:"
+        } else {
+            Record-Finding "FAIL" "disk-encrypt" "BitLocker not enabled"
+        }
+    } catch {
+        Record-Finding "MANUAL" "disk-encrypt" "BitLocker status unknown (requires admin or TPM)"
+    }
+}
+
+function Check-firewall-inbound {
+    $profiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    if (-not $profiles) {
+        Record-Finding "SKIP" "firewall-inbound" "Cannot query firewall profiles"
+        return
+    }
+    $allEnabled = ($profiles | Where-Object { $_.Enabled -eq $false }).Count -eq 0
+    $allBlock = ($profiles | Where-Object { $_.DefaultInboundAction -eq "Block" }).Count -eq $profiles.Count
+    if ($allEnabled -and $allBlock) {
+        Record-Finding "PASS" "firewall-inbound" "Firewall enabled, inbound blocked on all profiles"
+    } elseif ($allEnabled) {
+        Record-Finding "FAIL" "firewall-inbound" "Firewall enabled but inbound not blocked"
+    } else {
+        Record-Finding "FAIL" "firewall-inbound" "Firewall not enabled on all profiles"
+    }
+}
+
+function Check-firewall-stealth {
+    if (Get-NetFirewallRule -DisplayName "Harden-Block-ICMPv4-In" -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "firewall-stealth" "ICMP block rule active"
+    } else {
+        Record-Finding "FAIL" "firewall-stealth" "No ICMP block rule found"
+    }
+}
+
+function Check-firewall-outbound {
+    $profiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    if (-not $profiles) {
+        Record-Finding "SKIP" "firewall-outbound" "Cannot query firewall profiles"
+        return
+    }
+    $allDenyOut = ($profiles | Where-Object { $_.DefaultOutboundAction -eq "Block" }).Count -eq $profiles.Count
+    if ($allDenyOut) {
+        Record-Finding "PASS" "firewall-outbound" "Default outbound blocked on all profiles"
+    } else {
+        Record-Finding "FAIL" "firewall-outbound" "Outbound traffic not blocked by default"
+    }
+}
+
+function Check-dns-secure {
+    $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" }
+    if (-not $adapters) {
+        Record-Finding "SKIP" "dns-secure" "No active network adapters"
+        return
+    }
+    $allQuad9 = $true
+    foreach ($a in $adapters) {
+        $dns = Get-DnsClientServerAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        if ($dns.ServerAddresses -notcontains "9.9.9.9") { $allQuad9 = $false; break }
+    }
+    if ($allQuad9) {
+        Record-Finding "PASS" "dns-secure" "Quad9 DNS configured on all adapters"
+    } else {
+        Record-Finding "FAIL" "dns-secure" "DNS not set to Quad9 on all adapters"
+    }
+}
+
+function Check-vpn-killswitch {
+    $rules = Get-NetFirewallRule -DisplayName "Harden-VPN-*" -ErrorAction SilentlyContinue
+    if ($rules) {
+        Record-Finding "PASS" "vpn-killswitch" "VPN killswitch firewall rules found"
+    } else {
+        Record-Finding "MANUAL" "vpn-killswitch" "VPN killswitch requires manual verification"
+    }
+}
+
+function Check-hostname-scrub {
+    if ($env:COMPUTERNAME -eq "DESKTOP-PC") {
+        Record-Finding "PASS" "hostname-scrub" "Generic hostname set (DESKTOP-PC)"
+    } else {
+        Record-Finding "FAIL" "hostname-scrub" "Hostname is '$($env:COMPUTERNAME)' (not generic)"
+    }
+}
+
+function Check-mac-rotate {
+    $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" }
+    $spoofed = $false
+    foreach ($a in $adapters) {
+        $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+        $subKeys = Get-ChildItem $regPath -ErrorAction SilentlyContinue
+        foreach ($key in $subKeys) {
+            $na = Get-ItemProperty -Path $key.PSPath -Name "NetworkAddress" -ErrorAction SilentlyContinue
+            if ($na -and $na.NetworkAddress) { $spoofed = $true; break }
+        }
+        if ($spoofed) { break }
+    }
+    if ($spoofed) {
+        Record-Finding "PASS" "mac-rotate" "MAC address override detected in registry"
+    } else {
+        Record-Finding "MANUAL" "mac-rotate" "No MAC spoofing detected (may use third-party tool)"
+    }
+}
+
+function Check-telemetry-disable {
+    $diagTrack = Get-Service -Name "DiagTrack" -ErrorAction SilentlyContinue
+    if ($diagTrack -and $diagTrack.StartType -eq "Disabled") {
+        Record-Finding "PASS" "telemetry-disable" "DiagTrack service disabled"
+    } elseif ($diagTrack) {
+        Record-Finding "FAIL" "telemetry-disable" "DiagTrack service is $($diagTrack.StartType)"
+    } else {
+        Record-Finding "SKIP" "telemetry-disable" "DiagTrack service not found"
+    }
+}
+
+function Check-traffic-obfuscation {
+    if (Get-Command tor -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "traffic-obfuscation" "Tor binary found in PATH"
+    } else {
+        Record-Finding "MANUAL" "traffic-obfuscation" "Traffic obfuscation requires manual setup (Tor/VPN with DAITA)"
+    }
+}
+
+function Check-metadata-strip {
+    if (Get-Command exiftool -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "metadata-strip" "exiftool available"
+    } else {
+        Record-Finding "FAIL" "metadata-strip" "exiftool not found in PATH"
+    }
+}
+
+function Check-browser-basic {
+    $edgePath = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+    $edgeTP = (Get-ItemProperty -Path $edgePath -Name "TrackingPrevention" -ErrorAction SilentlyContinue).TrackingPrevention
+    if ($edgeTP -eq 3) {
+        Record-Finding "PASS" "browser-basic" "Edge tracking prevention set to Strict"
+    } else {
+        Record-Finding "FAIL" "browser-basic" "Edge tracking prevention not configured"
+    }
+}
+
+function Check-browser-fingerprint {
+    $ffProfileRoot = Join-Path $script:RealHome "AppData\Roaming\Mozilla\Firefox\Profiles"
+    $ffProfile = Get-ChildItem -Path $ffProfileRoot -Filter "*.default-release" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $ffProfile) {
+        Record-Finding "SKIP" "browser-fingerprint" "No Firefox profile found"
+        return
+    }
+    $userJs = Join-Path $ffProfile.FullName "user.js"
+    if ((Test-Path $userJs) -and (Select-String -Path $userJs -Pattern "privacy.resistFingerprinting" -Quiet -ErrorAction SilentlyContinue)) {
+        Record-Finding "PASS" "browser-fingerprint" "Firefox resistFingerprinting enabled"
+    } else {
+        Record-Finding "FAIL" "browser-fingerprint" "Firefox resistFingerprinting not set"
+    }
+}
+
+function Check-guest-disable {
+    try {
+        $guest = Get-LocalUser -Name "Guest" -ErrorAction SilentlyContinue
+        if ($null -eq $guest -or $guest.Enabled -eq $false) {
+            Record-Finding "PASS" "guest-disable" "Guest account disabled"
+        } else {
+            Record-Finding "FAIL" "guest-disable" "Guest account is enabled"
+        }
+    } catch {
+        Record-Finding "PASS" "guest-disable" "Guest account not found"
+    }
+}
+
+function Check-lock-screen {
+    $ssRegPath = "HKCU:\Control Panel\Desktop"
+    $lock = (Get-ItemProperty -Path $ssRegPath -Name "ScreenSaverIsSecure" -ErrorAction SilentlyContinue).ScreenSaverIsSecure
+    $timeout = (Get-ItemProperty -Path $ssRegPath -Name "ScreenSaveTimeOut" -ErrorAction SilentlyContinue).ScreenSaveTimeOut
+    if ($lock -eq "1" -and $null -ne $timeout -and [int]$timeout -le 300) {
+        Record-Finding "PASS" "lock-screen" "Screen locks after $([math]::Floor([int]$timeout/60)) min with password"
+    } else {
+        Record-Finding "FAIL" "lock-screen" "Screen lock not configured (timeout or password missing)"
+    }
+}
+
+function Check-bluetooth-disable {
+    $btService = Get-Service -Name "bthserv" -ErrorAction SilentlyContinue
+    if (-not $btService) {
+        Record-Finding "SKIP" "bluetooth-disable" "Bluetooth service not found"
+        return
+    }
+    if ($btService.Status -eq "Stopped" -and $btService.StartType -eq "Disabled") {
+        Record-Finding "PASS" "bluetooth-disable" "Bluetooth service disabled"
+    } else {
+        Record-Finding "FAIL" "bluetooth-disable" "Bluetooth service is $($btService.Status) ($($btService.StartType))"
+    }
+}
+
+function Check-git-harden {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Record-Finding "SKIP" "git-harden" "Git not installed"
+        return
+    }
+    $signing = & git config --global --get commit.gpgsign 2>$null
+    if ($signing -eq "true") {
+        Record-Finding "PASS" "git-harden" "Git commit signing enabled"
+    } else {
+        Record-Finding "FAIL" "git-harden" "Git commit signing not enabled"
+    }
+}
+
+function Check-dev-isolation {
+    $wslInstalled = Get-Command wsl -ErrorAction SilentlyContinue
+    $dockerDesktop = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
+    if ($wslInstalled -or $dockerDesktop) {
+        Record-Finding "MANUAL" "dev-isolation" "WSL/Docker present — verify isolation settings manually"
+    } else {
+        Record-Finding "SKIP" "dev-isolation" "WSL and Docker not detected"
+    }
+}
+
+function Check-ssh-harden {
+    $sshConfig = Join-Path $script:RealHome ".ssh\config"
+    if (-not (Test-Path $sshConfig)) {
+        Record-Finding "FAIL" "ssh-harden" "No SSH config file found"
+        return
+    }
+    if (Select-String -Path $sshConfig -Pattern "IdentitiesOnly yes" -Quiet -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "ssh-harden" "SSH config has IdentitiesOnly yes"
+    } else {
+        Record-Finding "FAIL" "ssh-harden" "SSH config missing IdentitiesOnly yes"
+    }
+}
+
+function Check-monitoring-tools {
+    $sysmon = Get-Service -Name "Sysmon*" -ErrorAction SilentlyContinue
+    if ($sysmon -and $sysmon.Status -eq "Running") {
+        Record-Finding "PASS" "monitoring-tools" "Sysmon is running"
+    } elseif ($sysmon) {
+        Record-Finding "FAIL" "monitoring-tools" "Sysmon installed but not running"
+    } else {
+        Record-Finding "FAIL" "monitoring-tools" "Sysmon not installed"
+    }
+}
+
+function Check-permissions-audit {
+    Record-Finding "MANUAL" "permissions-audit" "Run permissions audit manually to review granted access"
+}
+
+function Check-audit-script {
+    $task = Get-ScheduledTask -TaskName "SecurityWeeklyAudit" -ErrorAction SilentlyContinue
+    if ($task) {
+        Record-Finding "PASS" "audit-script" "Weekly audit task scheduled"
+    } else {
+        Record-Finding "FAIL" "audit-script" "Weekly audit task not found"
+    }
+}
+
+function Check-auto-updates {
+    try {
+        $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+        $current = Get-ItemProperty -Path $regPath -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+        if ($null -eq $current -or $current.NoAutoUpdate -eq 0) {
+            Record-Finding "PASS" "auto-updates" "Automatic updates enabled"
+        } else {
+            Record-Finding "FAIL" "auto-updates" "Automatic updates disabled via policy"
+        }
+    } catch {
+        Record-Finding "PASS" "auto-updates" "No update restriction policy found"
+    }
+}
+
+function Check-backup-guidance {
+    Record-Finding "MANUAL" "backup-guidance" "Verify encrypted backup strategy is in place"
+}
+
+function Check-border-prep {
+    Record-Finding "MANUAL" "border-prep" "Review travel protocol and nuke checklist"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIT: DISPLAY
+# ═══════════════════════════════════════════════════════════════════
+
+function Print-FindingsTable {
+    param([string[]]$ModList)
+
+    Write-Host ""
+    Write-Host ("  {0,-10} {1,-10} {2,-22} {3}" -f "Status", "Severity", "Module", "Finding") -ForegroundColor White
+    Write-Host ("  {0,-10} {1,-10} {2,-22} {3}" -f "------", "--------", "--------------------", "-------") -ForegroundColor DarkYellow
+
+    $sevOrder = @("CRITICAL", "HIGH", "MEDIUM", "LOW")
+
+    foreach ($sev in $sevOrder) {
+        foreach ($modId in $ModList) {
+            if ($script:ModuleSeverity[$modId] -ne $sev) { continue }
+
+            # Find this module's finding
+            $idx = -1
+            for ($i = 0; $i -lt $script:FindingsModule.Count; $i++) {
+                if ($script:FindingsModule[$i] -eq $modId) { $idx = $i; break }
+            }
+            if ($idx -eq -1) { continue }
+
+            $status = $script:FindingsStatus[$idx]
+            $finding = $script:FindingsMessage[$idx]
+
+            switch ($status) {
+                "PASS"   { $icon = "✓"; $color = "Green" }
+                "FAIL"   { $icon = "✗"; $color = "Red" }
+                "MANUAL" { $icon = "~"; $color = "Red" }
+                "SKIP"   { $icon = "○"; $color = "DarkYellow" }
+                default  { $icon = "○"; $color = "DarkYellow" }
+            }
+
+            Write-Host "  " -NoNewline
+            Write-Host ("{0,-10}" -f "$icon $status") -ForegroundColor $color -NoNewline
+            Write-Host ("{0,-10} {1,-22} {2}" -f $sev, $modId, $finding)
+        }
+    }
+    Write-Host ""
+}
+
+function Print-ScoreBar {
+    param([int]$Pct)
+    $width = 20
+    $filled = [math]::Floor(($Pct * $width) / 100)
+    $empty = $width - $filled
+    $bar = ("█" * $filled) + ("░" * $empty)
+
+    if ($Pct -ge 80) { $color = "Green" }
+    elseif ($Pct -ge 50) { $color = "DarkYellow" }
+    else { $color = "Red" }
+
+    Write-Host "  Hardening Score: " -NoNewline -ForegroundColor White
+    Write-Host "$Pct/100" -ForegroundColor $color -NoNewline
+    Write-Host " [" -NoNewline
+    Write-Host $bar -ForegroundColor $color -NoNewline
+    Write-Host "]"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIT: REPORT & ORCHESTRATION
+# ═══════════════════════════════════════════════════════════════════
+
+function Write-AuditReport {
+    param([string[]]$ModList, [int]$Pct, [int]$AC, [int]$TC)
+    New-Item -ItemType Directory -Path $script:AuditDir -Force | Out-Null
+    $reportFile = Join-Path $script:AuditDir "audit-$($script:DATE).md"
+    $sevOrder = @("CRITICAL", "HIGH", "MEDIUM", "LOW")
+
+    $report = @()
+    $report += "# Security Audit Report — $($script:DATE)"
+    $report += ""
+    $report += "**Hardening Score:** $Pct/100 — $AC of $TC modules passing"
+    $report += "**OS:** Windows $([System.Environment]::OSVersion.Version)"
+    $report += "**Profile scope:** all"
+    $report += "**Generated:** $($script:TIMESTAMP)"
+    $report += ""
+    $report += "## Findings"
+    $report += ""
+    $report += "| Status | Severity | Module | Finding |"
+    $report += "|--------|----------|--------|---------|"
+
+    foreach ($sev in $sevOrder) {
+        foreach ($modId in $ModList) {
+            if ($script:ModuleSeverity[$modId] -ne $sev) { continue }
+            $idx = -1
+            for ($i = 0; $i -lt $script:FindingsModule.Count; $i++) {
+                if ($script:FindingsModule[$i] -eq $modId) { $idx = $i; break }
+            }
+            if ($idx -eq -1) { continue }
+            $status = $script:FindingsStatus[$idx]
+            $finding = $script:FindingsMessage[$idx] -replace '\|', '\|'
+            $report += "| $status | $sev | $modId | $finding |"
+        }
+    }
+
+    $report += ""
+    $report += "---"
+    $report += "Generated by barked.ps1 v$($script:VERSION)"
+    try {
+        $report | Out-File -FilePath $reportFile -Encoding UTF8 -ErrorAction Stop
+        Write-Host "  " -NoNewline
+        Write-Color "Audit report saved: " Green
+        Write-Host $reportFile
+    } catch {
+        Write-Host "  ERROR: Failed to write audit report to $reportFile" -ForegroundColor Red
+    }
+}
+
+function Run-Audit {
+    $auditMods = $script:AllModuleIds
+
+    # Clear findings
+    $script:FindingsStatus = @()
+    $script:FindingsModule = @()
+    $script:FindingsMessage = @()
+
+    # Run check on each module
+    foreach ($modId in $auditMods) {
+        $fnName = "Check-$modId"
+        if (Get-Command $fnName -ErrorAction SilentlyContinue) {
+            & $fnName
+        } else {
+            Record-Finding "SKIP" $modId "No check function available"
+        }
+    }
+
+    # Separate applicable from skipped, and passing from rest
+    $applicableMods = @()
+    $passingMods = @()
+    for ($i = 0; $i -lt $script:FindingsModule.Count; $i++) {
+        $status = $script:FindingsStatus[$i]
+        $mod = $script:FindingsModule[$i]
+        if ($status -ne "SKIP") {
+            $applicableMods += $mod
+            if ($status -eq "PASS") { $passingMods += $mod }
+        }
+    }
+
+    # Calculate score
+    $score = Calculate-Score $applicableMods $passingMods
+
+    # Display
+    Print-Section "Security Audit Report"
+    Print-FindingsTable $auditMods
+    Print-ScoreBar $score.Percentage
+    Write-Host "  $($score.AppliedCount) of $($score.TotalCount) modules passing" -ForegroundColor DarkYellow
+    Write-Host ""
+
+    # Write report
+    Write-AuditReport $auditMods $score.Percentage $score.AppliedCount $score.TotalCount
 }
 
 # ═══════════════════════════════════════════════════════════════════
@@ -3899,6 +4401,7 @@ function Print-Help {
     Write-Host "Options:"
     Write-Host "  -Uninstall    Full uninstall — revert all hardening changes"
     Write-Host "  -Modify       Interactive module picker — add or remove individual modules"
+    Write-Host "  -Audit        Score system security without making changes"
     Write-Host "  -Clean        System cleaner — remove caches, logs, browser data, and more"
     Write-Host "  -Force        Skip confirmation prompts (use with -Clean)"
     Write-Host "  -DryRun       Preview changes without applying them (use with -Clean)"
@@ -3909,6 +4412,7 @@ function Print-Help {
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\barked.ps1                        Interactive wizard"
+    Write-Host "  .\barked.ps1 -Audit                 Security audit (read-only)"
     Write-Host "  .\barked.ps1 -Clean                 Interactive system cleaner"
     Write-Host "  .\barked.ps1 -Clean -DryRun         Preview what would be cleaned"
     Write-Host "  .\barked.ps1 -Clean -Force          Clean without confirmation"
@@ -3942,6 +4446,15 @@ function Main {
 
     if ($Clean) {
         Invoke-Clean
+        Invoke-PassiveUpdateCheck
+        exit 0
+    }
+
+    if ($Audit) {
+        Print-Header
+        Write-Host "  Detected: " -NoNewline
+        Write-ColorLine "Windows $(([System.Environment]::OSVersion.Version))" Green
+        Run-Audit
         Invoke-PassiveUpdateCheck
         exit 0
     }
