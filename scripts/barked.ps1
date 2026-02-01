@@ -554,6 +554,287 @@ function Record-Finding {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# AUDIT: CHECK FUNCTIONS (non-destructive)
+# ═══════════════════════════════════════════════════════════════════
+
+function Check-disk-encrypt {
+    try {
+        $bl = Get-BitLockerVolume -MountPoint "C:" -ErrorAction Stop
+        if ($bl.ProtectionStatus -eq "On") {
+            Record-Finding "PASS" "disk-encrypt" "BitLocker enabled on C:"
+        } else {
+            Record-Finding "FAIL" "disk-encrypt" "BitLocker not enabled"
+        }
+    } catch {
+        Record-Finding "MANUAL" "disk-encrypt" "BitLocker status unknown (requires admin or TPM)"
+    }
+}
+
+function Check-firewall-inbound {
+    $profiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    if (-not $profiles) {
+        Record-Finding "SKIP" "firewall-inbound" "Cannot query firewall profiles"
+        return
+    }
+    $allEnabled = ($profiles | Where-Object { $_.Enabled -eq $false }).Count -eq 0
+    $allBlock = ($profiles | Where-Object { $_.DefaultInboundAction -eq "Block" }).Count -eq $profiles.Count
+    if ($allEnabled -and $allBlock) {
+        Record-Finding "PASS" "firewall-inbound" "Firewall enabled, inbound blocked on all profiles"
+    } elseif ($allEnabled) {
+        Record-Finding "FAIL" "firewall-inbound" "Firewall enabled but inbound not blocked"
+    } else {
+        Record-Finding "FAIL" "firewall-inbound" "Firewall not enabled on all profiles"
+    }
+}
+
+function Check-firewall-stealth {
+    if (Get-NetFirewallRule -DisplayName "Harden-Block-ICMPv4-In" -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "firewall-stealth" "ICMP block rule active"
+    } else {
+        Record-Finding "FAIL" "firewall-stealth" "No ICMP block rule found"
+    }
+}
+
+function Check-firewall-outbound {
+    $profiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    if (-not $profiles) {
+        Record-Finding "SKIP" "firewall-outbound" "Cannot query firewall profiles"
+        return
+    }
+    $allDenyOut = ($profiles | Where-Object { $_.DefaultOutboundAction -eq "Block" }).Count -eq $profiles.Count
+    if ($allDenyOut) {
+        Record-Finding "PASS" "firewall-outbound" "Default outbound blocked on all profiles"
+    } else {
+        Record-Finding "FAIL" "firewall-outbound" "Outbound traffic not blocked by default"
+    }
+}
+
+function Check-dns-secure {
+    $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" }
+    if (-not $adapters) {
+        Record-Finding "SKIP" "dns-secure" "No active network adapters"
+        return
+    }
+    $allQuad9 = $true
+    foreach ($a in $adapters) {
+        $dns = Get-DnsClientServerAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        if ($dns.ServerAddresses -notcontains "9.9.9.9") { $allQuad9 = $false; break }
+    }
+    if ($allQuad9) {
+        Record-Finding "PASS" "dns-secure" "Quad9 DNS configured on all adapters"
+    } else {
+        Record-Finding "FAIL" "dns-secure" "DNS not set to Quad9 on all adapters"
+    }
+}
+
+function Check-vpn-killswitch {
+    $rules = Get-NetFirewallRule -DisplayName "Harden-VPN-*" -ErrorAction SilentlyContinue
+    if ($rules) {
+        Record-Finding "PASS" "vpn-killswitch" "VPN killswitch firewall rules found"
+    } else {
+        Record-Finding "MANUAL" "vpn-killswitch" "VPN killswitch requires manual verification"
+    }
+}
+
+function Check-hostname-scrub {
+    if ($env:COMPUTERNAME -eq "DESKTOP-PC") {
+        Record-Finding "PASS" "hostname-scrub" "Generic hostname set (DESKTOP-PC)"
+    } else {
+        Record-Finding "FAIL" "hostname-scrub" "Hostname is '$($env:COMPUTERNAME)' (not generic)"
+    }
+}
+
+function Check-mac-rotate {
+    $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" }
+    $spoofed = $false
+    foreach ($a in $adapters) {
+        $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+        $subKeys = Get-ChildItem $regPath -ErrorAction SilentlyContinue
+        foreach ($key in $subKeys) {
+            $na = Get-ItemProperty -Path $key.PSPath -Name "NetworkAddress" -ErrorAction SilentlyContinue
+            if ($na -and $na.NetworkAddress) { $spoofed = $true; break }
+        }
+        if ($spoofed) { break }
+    }
+    if ($spoofed) {
+        Record-Finding "PASS" "mac-rotate" "MAC address override detected in registry"
+    } else {
+        Record-Finding "MANUAL" "mac-rotate" "No MAC spoofing detected (may use third-party tool)"
+    }
+}
+
+function Check-telemetry-disable {
+    $diagTrack = Get-Service -Name "DiagTrack" -ErrorAction SilentlyContinue
+    if ($diagTrack -and $diagTrack.StartType -eq "Disabled") {
+        Record-Finding "PASS" "telemetry-disable" "DiagTrack service disabled"
+    } elseif ($diagTrack) {
+        Record-Finding "FAIL" "telemetry-disable" "DiagTrack service is $($diagTrack.StartType)"
+    } else {
+        Record-Finding "SKIP" "telemetry-disable" "DiagTrack service not found"
+    }
+}
+
+function Check-traffic-obfuscation {
+    if (Get-Command tor -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "traffic-obfuscation" "Tor binary found in PATH"
+    } else {
+        Record-Finding "MANUAL" "traffic-obfuscation" "Traffic obfuscation requires manual setup (Tor/VPN with DAITA)"
+    }
+}
+
+function Check-metadata-strip {
+    if (Get-Command exiftool -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "metadata-strip" "exiftool available"
+    } else {
+        Record-Finding "FAIL" "metadata-strip" "exiftool not found in PATH"
+    }
+}
+
+function Check-browser-basic {
+    $edgePath = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"
+    $edgeTP = (Get-ItemProperty -Path $edgePath -Name "TrackingPrevention" -ErrorAction SilentlyContinue).TrackingPrevention
+    if ($edgeTP -eq 3) {
+        Record-Finding "PASS" "browser-basic" "Edge tracking prevention set to Strict"
+    } else {
+        Record-Finding "FAIL" "browser-basic" "Edge tracking prevention not configured"
+    }
+}
+
+function Check-browser-fingerprint {
+    $ffProfileRoot = Join-Path $script:RealHome "AppData\Roaming\Mozilla\Firefox\Profiles"
+    $ffProfile = Get-ChildItem -Path $ffProfileRoot -Filter "*.default-release" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $ffProfile) {
+        Record-Finding "SKIP" "browser-fingerprint" "No Firefox profile found"
+        return
+    }
+    $userJs = Join-Path $ffProfile.FullName "user.js"
+    if ((Test-Path $userJs) -and (Select-String -Path $userJs -Pattern "privacy.resistFingerprinting" -Quiet -ErrorAction SilentlyContinue)) {
+        Record-Finding "PASS" "browser-fingerprint" "Firefox resistFingerprinting enabled"
+    } else {
+        Record-Finding "FAIL" "browser-fingerprint" "Firefox resistFingerprinting not set"
+    }
+}
+
+function Check-guest-disable {
+    try {
+        $guest = Get-LocalUser -Name "Guest" -ErrorAction SilentlyContinue
+        if ($null -eq $guest -or $guest.Enabled -eq $false) {
+            Record-Finding "PASS" "guest-disable" "Guest account disabled"
+        } else {
+            Record-Finding "FAIL" "guest-disable" "Guest account is enabled"
+        }
+    } catch {
+        Record-Finding "PASS" "guest-disable" "Guest account not found"
+    }
+}
+
+function Check-lock-screen {
+    $ssRegPath = "HKCU:\Control Panel\Desktop"
+    $lock = (Get-ItemProperty -Path $ssRegPath -Name "ScreenSaverIsSecure" -ErrorAction SilentlyContinue).ScreenSaverIsSecure
+    $timeout = (Get-ItemProperty -Path $ssRegPath -Name "ScreenSaveTimeOut" -ErrorAction SilentlyContinue).ScreenSaveTimeOut
+    if ($lock -eq "1" -and $null -ne $timeout -and [int]$timeout -le 300) {
+        Record-Finding "PASS" "lock-screen" "Screen locks after $([math]::Floor([int]$timeout/60)) min with password"
+    } else {
+        Record-Finding "FAIL" "lock-screen" "Screen lock not configured (timeout or password missing)"
+    }
+}
+
+function Check-bluetooth-disable {
+    $btService = Get-Service -Name "bthserv" -ErrorAction SilentlyContinue
+    if (-not $btService) {
+        Record-Finding "SKIP" "bluetooth-disable" "Bluetooth service not found"
+        return
+    }
+    if ($btService.Status -eq "Stopped" -and $btService.StartType -eq "Disabled") {
+        Record-Finding "PASS" "bluetooth-disable" "Bluetooth service disabled"
+    } else {
+        Record-Finding "FAIL" "bluetooth-disable" "Bluetooth service is $($btService.Status) ($($btService.StartType))"
+    }
+}
+
+function Check-git-harden {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Record-Finding "SKIP" "git-harden" "Git not installed"
+        return
+    }
+    $signing = & git config --global --get commit.gpgsign 2>$null
+    if ($signing -eq "true") {
+        Record-Finding "PASS" "git-harden" "Git commit signing enabled"
+    } else {
+        Record-Finding "FAIL" "git-harden" "Git commit signing not enabled"
+    }
+}
+
+function Check-dev-isolation {
+    $wslInstalled = Get-Command wsl -ErrorAction SilentlyContinue
+    $dockerDesktop = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
+    if ($wslInstalled -or $dockerDesktop) {
+        Record-Finding "MANUAL" "dev-isolation" "WSL/Docker present — verify isolation settings manually"
+    } else {
+        Record-Finding "SKIP" "dev-isolation" "WSL and Docker not detected"
+    }
+}
+
+function Check-ssh-harden {
+    $sshConfig = Join-Path $script:RealHome ".ssh\config"
+    if (-not (Test-Path $sshConfig)) {
+        Record-Finding "FAIL" "ssh-harden" "No SSH config file found"
+        return
+    }
+    if (Select-String -Path $sshConfig -Pattern "IdentitiesOnly yes" -Quiet -ErrorAction SilentlyContinue) {
+        Record-Finding "PASS" "ssh-harden" "SSH config has IdentitiesOnly yes"
+    } else {
+        Record-Finding "FAIL" "ssh-harden" "SSH config missing IdentitiesOnly yes"
+    }
+}
+
+function Check-monitoring-tools {
+    $sysmon = Get-Service -Name "Sysmon*" -ErrorAction SilentlyContinue
+    if ($sysmon -and $sysmon.Status -eq "Running") {
+        Record-Finding "PASS" "monitoring-tools" "Sysmon is running"
+    } elseif ($sysmon) {
+        Record-Finding "FAIL" "monitoring-tools" "Sysmon installed but not running"
+    } else {
+        Record-Finding "FAIL" "monitoring-tools" "Sysmon not installed"
+    }
+}
+
+function Check-permissions-audit {
+    Record-Finding "MANUAL" "permissions-audit" "Run permissions audit manually to review granted access"
+}
+
+function Check-audit-script {
+    $task = Get-ScheduledTask -TaskName "SecurityWeeklyAudit" -ErrorAction SilentlyContinue
+    if ($task) {
+        Record-Finding "PASS" "audit-script" "Weekly audit task scheduled"
+    } else {
+        Record-Finding "FAIL" "audit-script" "Weekly audit task not found"
+    }
+}
+
+function Check-auto-updates {
+    try {
+        $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+        $current = Get-ItemProperty -Path $regPath -Name "NoAutoUpdate" -ErrorAction SilentlyContinue
+        if ($null -eq $current -or $current.NoAutoUpdate -eq 0) {
+            Record-Finding "PASS" "auto-updates" "Automatic updates enabled"
+        } else {
+            Record-Finding "FAIL" "auto-updates" "Automatic updates disabled via policy"
+        }
+    } catch {
+        Record-Finding "PASS" "auto-updates" "No update restriction policy found"
+    }
+}
+
+function Check-backup-guidance {
+    Record-Finding "MANUAL" "backup-guidance" "Verify encrypted backup strategy is in place"
+}
+
+function Check-border-prep {
+    Record-Finding "MANUAL" "border-prep" "Review travel protocol and nuke checklist"
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # PACKAGE UNINSTALL HELPER
 # ═══════════════════════════════════════════════════════════════════
 function Uninstall-Pkg {
