@@ -4759,6 +4759,8 @@ function Print-Help {
     Write-Host "  -Modify       Interactive module picker — add or remove individual modules"
     Write-Host "  -Audit        Score system security without making changes"
     Write-Host "  -Clean        System cleaner — remove caches, logs, browser data, and more"
+    Write-Host "  -CleanSchedule    Set up scheduled cleaning"
+    Write-Host "  -CleanUnschedule  Remove scheduled cleaning"
     Write-Host "  -Force        Skip confirmation prompts (use with -Clean)"
     Write-Host "  -DryRun       Preview changes without applying them (use with -Clean)"
     Write-Host "  -Help         Show this help message"
@@ -4772,6 +4774,7 @@ function Print-Help {
     Write-Host "  .\barked.ps1 -Clean                 Interactive system cleaner"
     Write-Host "  .\barked.ps1 -Clean -DryRun         Preview what would be cleaned"
     Write-Host "  .\barked.ps1 -Clean -Force          Clean without confirmation"
+    Write-Host "  .\barked.ps1 -CleanSchedule          Set up recurring clean"
     Write-Host ""
     Write-Host "No options: launch the interactive hardening wizard."
     Write-Host ""
@@ -4798,6 +4801,25 @@ function Main {
     }
     if ($Modify) {
         $script:RunMode = "modify"
+    }
+
+    if ($CleanScheduled) {
+        Run-ScheduledClean
+        exit 0
+    }
+
+    if ($CleanSchedule) {
+        Print-Header
+        Setup-ScheduledClean
+        Invoke-PassiveUpdateCheck
+        exit 0
+    }
+
+    if ($CleanUnschedule) {
+        Print-Header
+        Unschedule-ScheduledClean
+        Invoke-PassiveUpdateCheck
+        exit 0
     }
 
     if ($Clean) {
