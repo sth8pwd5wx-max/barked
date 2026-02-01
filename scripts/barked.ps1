@@ -538,6 +538,7 @@ function Log-Entry {
 }
 
 function Print-Header {
+    if ($script:QuietMode) { return }
     Write-Host ""
     Write-ColorLine "╔══════════════════════════════════════════════════╗" Green
     Write-Host "║" -ForegroundColor Green -NoNewline
@@ -559,6 +560,7 @@ function Print-Section {
 
 function Print-Status {
     param([int]$Num, [int]$Total, [string]$Desc, [string]$Status)
+    if ($script:QuietMode) { return }
     switch ($Status) {
         "applied"  { Write-Host "  " -NoNewline; Write-Color "✓" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(applied)" DarkYellow }
         "skipped"  { Write-Host "  " -NoNewline; Write-Color "○" Green; Write-Host " [$Num/$Total] $Desc " -NoNewline; Write-ColorLine "(already applied)" DarkYellow }
@@ -1200,6 +1202,7 @@ function Check-border-prep {
 
 function Print-FindingsTable {
     param([string[]]$ModList)
+    if ($script:QuietMode) { return }
 
     Write-Host ""
     Write-Host ("  {0,-10} {1,-10} {2,-22} {3}" -f "Status", "Severity", "Module", "Finding") -ForegroundColor White
@@ -1239,6 +1242,7 @@ function Print-FindingsTable {
 
 function Print-ScoreBar {
     param([int]$Pct)
+    if ($script:QuietMode) { return }
     $width = 20
     $filled = [math]::Floor(($Pct * $width) / 100)
     $empty = $width - $filled
@@ -1853,7 +1857,7 @@ function Run-Module {
 }
 
 function Run-AllModules {
-    Print-Section "Applying Hardening ($($script:TotalModules) modules)"
+    if (-not $script:QuietMode) { Print-Section "Applying Hardening ($($script:TotalModules) modules)" }
     foreach ($mod in $script:EnabledModules) {
         Run-Module $mod
     }
@@ -3395,6 +3399,7 @@ function Print-ModifySummary {
 # OUTPUT: SUMMARY & REPORTS
 # ═══════════════════════════════════════════════════════════════════
 function Print-Summary {
+    if ($script:QuietMode) { return }
     Write-Host ""
     Write-ColorLine "═══════════════════════════════════════════════════" Green
     Write-ColorLine "  Hardening Complete" Green
