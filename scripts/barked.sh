@@ -7191,15 +7191,17 @@ main() {
     # ── Schedule setup mode ──
     if [[ "$CLEAN_SCHEDULE_SETUP" == true ]]; then
         setup_scheduled_clean
+        exit_code=$?
         check_update_passive
-        exit $?
+        exit $exit_code
     fi
 
     # ── Unschedule mode ──
     if [[ "$CLEAN_UNSCHEDULE" == true ]]; then
         unschedule_clean
+        exit_code=$?
         check_update_passive
-        exit $?
+        exit $exit_code
     fi
 
     # ── Auto (non-interactive) mode ──
