@@ -180,6 +180,32 @@ Windows:
 - Cleanliness score with severity-weighted scoring
 - Full logging to `audits/clean-log-YYYY-MM-DD.txt`
 
+## Automated Scheduled Cleaning
+
+Set up automated cleaning to run on a schedule (daily, weekly, or custom).
+
+```bash
+barked --clean-schedule          # macOS / Linux
+```
+
+**Setup wizard:**
+1. Select cleaning categories
+2. Choose schedule frequency (Daily, Weekly, Custom)
+3. Enable/disable notifications
+4. Review and confirm
+
+The schedule is installed to run automatically:
+- **macOS**: launchd (`~/Library/LaunchAgents/com.barked.scheduled-clean.plist`)
+- **Linux**: cron (`crontab -l` to view)
+
+**Remove schedule:**
+```bash
+barked --clean-unschedule        # macOS / Linux
+```
+
+**Manage from menu:**
+In the wizard, select `[S] Schedule` to set up or modify automated cleaning.
+
 ## Peel It Back
 
 **Full uninstall** — revert all changes:
