@@ -186,7 +186,6 @@ Set up automated cleaning to run on a schedule (daily, weekly, or custom).
 
 ```bash
 barked --clean-schedule          # macOS / Linux
-barked -CleanSchedule            # Windows
 ```
 
 **Setup wizard:**
@@ -198,12 +197,10 @@ barked -CleanSchedule            # Windows
 The schedule is installed to run automatically:
 - **macOS**: launchd (`~/Library/LaunchAgents/com.barked.scheduled-clean.plist`)
 - **Linux**: cron (`crontab -l` to view)
-- **Windows**: Task Scheduler
 
 **Remove schedule:**
 ```bash
 barked --clean-unschedule        # macOS / Linux
-barked -CleanUnschedule          # Windows
 ```
 
 **Manage from menu:**

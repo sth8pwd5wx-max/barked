@@ -733,7 +733,7 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
     sys.exit(1)
 PYEOF
     ) || {
-        log "ERROR: Invalid config JSON at $config_file"
+        clean_log "ERROR" "Invalid config JSON at $config_file"
         return 1
     }
 
@@ -762,6 +762,7 @@ save_scheduled_config() {
     local categories=("$@")
 
     mkdir -p "$(dirname "$SCHED_CLEAN_CONFIG_USER")" 2>/dev/null
+    chmod 700 "$(dirname "$SCHED_CLEAN_CONFIG_USER")" 2>/dev/null || true
 
     # Use Python json.dump() for safe JSON generation with error handling
     if ! python3 - "$SCHED_CLEAN_CONFIG_USER" "$enabled" "$schedule" "$custom_interval" "$notify" "${categories[@]}" 2>/dev/null << 'PYEOF'
@@ -788,9 +789,10 @@ with open(config_file, 'w') as f:
     json.dump(config, f, indent=2)
 PYEOF
     then
-        log "ERROR: Failed to save scheduled clean config"
+        clean_log "ERROR" "Failed to save scheduled clean config"
         return 1
     fi
+    chmod 600 "$SCHED_CLEAN_CONFIG_USER" 2>/dev/null || true
 
     # Also save to project directory as backup
     mkdir -p "$(dirname "$SCHED_CLEAN_CONFIG_PROJECT")" 2>/dev/null
@@ -830,10 +832,14 @@ setup_scheduled_clean() {
     echo ""
     echo -e "  ${GREEN}[1]${NC} Daily (every day at 2:00 AM)"
     echo -e "  ${GREEN}[2]${NC} Weekly (Sunday at 2:00 AM)"
-    echo -e "  ${GREEN}[3]${NC} Custom (specify cron schedule)"
+    # Custom cron schedules only supported on Linux (launchd uses StartCalendarInterval)
+    if [[ "$OS" == "linux" ]]; then
+        echo -e "  ${GREEN}[3]${NC} Custom (specify cron schedule)"
+    fi
     echo ""
 
-    local schedule="" custom_interval=""
+    local schedule="" custom_interval="" max_choice=2
+    [[ "$OS" == "linux" ]] && max_choice=3
     while true; do
         echo -ne "  ${BOLD}Choice:${NC} "
         read -r sched_choice
@@ -841,6 +847,10 @@ setup_scheduled_clean() {
             1) schedule="daily"; break ;;
             2) schedule="weekly"; break ;;
             3)
+                if [[ "$OS" != "linux" ]]; then
+                    echo -e "  ${RED}Invalid choice. Enter 1-${max_choice}.${NC}"
+                    continue
+                fi
                 schedule="custom"
                 echo ""
                 echo -e "  ${BOLD}Enter cron schedule (e.g., '0 3 * * *' for daily at 3am):${NC}"
@@ -850,14 +860,25 @@ setup_scheduled_clean() {
                     echo -e "  ${RED}Invalid cron schedule${NC}"
                     continue
                 fi
-                # Add basic validation (5 fields)
+                # Validate 5-field cron format with valid characters
                 if [[ $(echo "$custom_interval" | wc -w) -ne 5 ]]; then
                     echo -e "  ${RED}Invalid cron format (must be 5 fields: minute hour day month weekday)${NC}"
                     continue
                 fi
+                local cron_valid=true
+                for field in $custom_interval; do
+                    if ! [[ "$field" =~ ^[0-9*,/\-]+$ ]]; then
+                        cron_valid=false
+                        break
+                    fi
+                done
+                if [[ "$cron_valid" != "true" ]]; then
+                    echo -e "  ${RED}Invalid cron field values (use digits, *, /, -, and , only)${NC}"
+                    continue
+                fi
                 break
                 ;;
-            *) echo -e "  ${RED}Invalid choice. Enter 1-3.${NC}" ;;
+            *) echo -e "  ${RED}Invalid choice. Enter 1-${max_choice}.${NC}" ;;
         esac
     done
 
@@ -989,15 +1010,9 @@ install_scheduler_macos() {
     </dict>"
             ;;
         custom)
-            # For custom, use daily at 2 AM (user can customize interval via launchd plist)
-            echo -e "  ${BROWN}Warning: Custom schedules not fully supported on macOS${NC}"
-            echo -e "  ${BROWN}Using daily schedule. Edit plist manually: $plist_path${NC}"
-            interval_xml="    <dict>
-      <key>Hour</key>
-      <integer>2</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>"
+            # Custom cron schedules should not reach macOS (blocked in setup wizard)
+            echo -e "  ${RED}Custom schedules not supported on macOS${NC}"
+            return 1
             ;;
     esac
 
@@ -1072,9 +1087,7 @@ install_scheduler_linux() {
     fi
 
     # Add new cron job
-    (crontab -l 2>/dev/null; echo "$cron_line") | crontab -
-
-    if [[ $? -eq 0 ]]; then
+    if (crontab -l 2>/dev/null; echo "$cron_line") | crontab -; then
         echo -e "  ${GREEN}✓ Cron job installed${NC}"
         echo "    Schedule: $cron_schedule"
     else
@@ -1114,19 +1127,19 @@ unschedule_clean() {
 
     # Disable in config
     if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]]; then
-        if ! python3 -c "
-import json
+        if ! python3 - "$SCHED_CLEAN_CONFIG_USER" 2>/dev/null << 'PYEOF'
+import sys, json
 try:
-    with open('$SCHED_CLEAN_CONFIG_USER', 'r') as f:
+    with open(sys.argv[1], 'r') as f:
         config = json.load(f)
     config['enabled'] = False
-    with open('$SCHED_CLEAN_CONFIG_USER', 'w') as f:
+    with open(sys.argv[1], 'w') as f:
         json.dump(config, f, indent=2)
 except (FileNotFoundError, json.JSONDecodeError, IOError) as e:
-    import sys
     print(f'Error: {e}', file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null; then
+PYEOF
+        then
             echo -e "  ${RED}✗ Failed to update config${NC}"
             # Continue anyway - scheduler was removed successfully
         else
@@ -1149,12 +1162,12 @@ run_scheduled_clean() {
 
     # 1. Load config and validate enabled status
     if ! load_scheduled_config; then
-        log "ERROR" "Failed to load scheduled clean config"
+        clean_log "ERROR" "Failed to load scheduled clean config"
         return 1
     fi
 
     if [[ "${SCHED_ENABLED:-false}" != "true" ]]; then
-        log "INFO" "Scheduled cleaning is disabled, skipping run"
+        clean_log "INFO" "Scheduled cleaning is disabled, skipping run"
         return 0
     fi
 
@@ -1162,18 +1175,18 @@ run_scheduled_clean() {
     if command -v df &>/dev/null; then
         available_gb=$(df -h / | awk 'NR==2 {print $4}' | sed 's/[^0-9.]//g')
         if (( $(echo "$available_gb < $min_disk_gb" | bc -l 2>/dev/null || echo 0) )); then
-            log "WARN" "Low disk space (${available_gb}GB), skipping scheduled clean"
+            clean_log "WARN" "Low disk space (${available_gb}GB), skipping scheduled clean"
             return 0
         fi
     fi
 
     # 2b. Pre-flight checks: battery (macOS only)
-    if [[ "$OSTYPE" == "darwin"* ]] && command -v pmset &>/dev/null; then
+    if [[ "$OS" == "macos" ]] && command -v pmset &>/dev/null; then
         battery_pct=$(pmset -g batt | grep -Eo "\d+%" | tr -d '%' | head -n1)
         is_charging=$(pmset -g batt | grep -q "AC Power" && echo "yes" || echo "no")
 
         if [[ "$is_charging" != "yes" ]] && [[ -n "$battery_pct" ]] && (( battery_pct < min_battery_pct )); then
-            log "WARN" "Low battery (${battery_pct}%), skipping scheduled clean"
+            clean_log "WARN" "Low battery (${battery_pct}%), skipping scheduled clean"
             return 0
         fi
     fi
@@ -1185,27 +1198,34 @@ run_scheduled_clean() {
         if [[ -f "$lock_file" ]]; then
             local lock_age=$(($(date +%s) - $(stat -f %m "$lock_file" 2>/dev/null || stat -c %Y "$lock_file" 2>/dev/null || echo 0)))
             if (( lock_age < lock_timeout )); then
-                log "INFO" "Another clean is already running (lock age: ${lock_age}s), exiting"
+                clean_log "INFO" "Another clean is already running (lock age: ${lock_age}s), exiting"
                 return 0
             else
-                log "WARN" "Stale lock file detected (age: ${lock_age}s), removing"
+                clean_log "WARN" "Stale lock file detected (age: ${lock_age}s), removing"
                 rm -f "$lock_file"
                 # Try to acquire lock again atomically
                 (set -C; echo $$ > "$lock_file") 2>/dev/null || {
-                    log "INFO" "Another clean acquired the lock first, exiting"
+                    clean_log "INFO" "Another clean acquired the lock first, exiting"
                     return 0
                 }
             fi
         else
-            log "INFO" "Another clean is already running, exiting"
+            clean_log "INFO" "Another clean is already running, exiting"
             return 0
         fi
     }
-    trap 'rm -f "$lock_file"' EXIT
+    # Append lock cleanup to existing EXIT trap (preserves cleanup_sudo if set)
+    local existing_trap
+    existing_trap=$(trap -p EXIT | sed "s/^trap -- '//;s/' EXIT$//") || true
+    if [[ -n "$existing_trap" ]]; then
+        trap "${existing_trap}; rm -f \"$lock_file\"" EXIT
+    else
+        trap 'rm -f "$lock_file"' EXIT
+    fi
 
     # 4. Set categories from config
     if [[ ${#SCHED_CATEGORIES[@]} -eq 0 ]]; then
-        log "ERROR" "No categories configured for scheduled clean"
+        clean_log "ERROR" "No categories configured for scheduled clean"
         return 1
     fi
 
@@ -1228,12 +1248,12 @@ run_scheduled_clean() {
         fi
     done
 
-    log "INFO" "Starting scheduled clean: categories=${SCHED_CATEGORIES[*]}"
+    clean_log "INFO" "Starting scheduled clean: categories=${SCHED_CATEGORIES[*]}"
 
     # 5. Run clean_execute (with FORCE flag to skip confirmation)
     CLEAN_FORCE=true
     if ! clean_execute; then
-        log "ERROR" "Scheduled clean failed"
+        clean_log "ERROR" "Scheduled clean failed"
         return 1
     fi
 
@@ -1256,7 +1276,7 @@ run_scheduled_clean() {
     local total_size_fmt
     total_size_fmt=$(format_bytes "$total_bytes")
 
-    log "INFO" "Scheduled clean completed: $total_files files, $total_size_fmt freed"
+    clean_log "INFO" "Scheduled clean completed: $total_files files, $total_size_fmt freed"
 
     # 7. Send notification (if enabled)
     if [[ "${SCHED_NOTIFY:-false}" == "true" ]]; then
@@ -1266,7 +1286,7 @@ run_scheduled_clean() {
     # 8. Update last_run timestamp in config
     # Check if config file is writable before attempting update
     if [[ ! -w "$SCHED_CLEAN_CONFIG_USER" ]]; then
-        log "WARN" "Cannot write to config file (permission denied), skipping timestamp update"
+        clean_log "WARN" "Cannot write to config file (permission denied), skipping timestamp update"
     else
         # Use sys.argv pattern to prevent shell injection
         if python3 - "$SCHED_CLEAN_CONFIG_USER" 2>/dev/null << 'PYEOF'
@@ -1282,9 +1302,9 @@ except (IOError, OSError, json.JSONDecodeError) as e:
     sys.exit(1)
 PYEOF
         then
-            log "INFO" "Updated last_run timestamp"
+            clean_log "INFO" "Updated last_run timestamp"
         else
-            log "WARN" "Failed to update last_run timestamp"
+            clean_log "WARN" "Failed to update last_run timestamp"
         fi
     fi
 
@@ -1323,7 +1343,7 @@ send_clean_notification() {
     case "$OS" in
         macos)
             # macOS: Use osascript for native notifications
-            if ! osascript -e "display notification \"🧹 Cleaned ${size_str} from ${file_count} files\" with title \"Barked Cleaner\" subtitle \"Scheduled cleaning complete\"" 2>/dev/null; then
+            if ! osascript -e "display notification \"Cleaned ${size_str} from ${file_count} files\" with title \"Barked Cleaner\" subtitle \"Scheduled cleaning complete\"" 2>/dev/null; then
                 # Notification failed - log but don't error out
                 clean_log "INFO" "Notification system unavailable (osascript failed)"
             fi
@@ -1331,7 +1351,7 @@ send_clean_notification() {
         linux)
             # Linux: Use notify-send if available
             if command -v notify-send &>/dev/null; then
-                if ! notify-send "Barked Cleaner" "🧹 Cleaned ${size_str} from ${file_count} files" 2>/dev/null; then
+                if ! notify-send "Barked Cleaner" "Cleaned ${size_str} from ${file_count} files" 2>/dev/null; then
                     clean_log "INFO" "Notification failed (notify-send error)"
                 fi
             else
@@ -7173,6 +7193,15 @@ run_uninstall_self() {
 main() {
     parse_args "$@"
 
+    # ── Scheduled clean mode (non-interactive, invoked by launchd/cron) ──
+    if [[ "$CLEAN_SCHEDULED" == true ]]; then
+        detect_os
+        run_scheduled_clean
+        local rc=$?
+        write_clean_log
+        exit $rc
+    fi
+
     print_header
     detect_os
     setup_privileges
@@ -7192,26 +7221,20 @@ main() {
         exit 0
     fi
 
-    # ── Scheduled clean mode (non-interactive) ──
-    if [[ "$CLEAN_SCHEDULED" == true ]]; then
-        run_scheduled_clean
-        exit $?
-    fi
-
     # ── Schedule setup mode ──
     if [[ "$CLEAN_SCHEDULE_SETUP" == true ]]; then
         setup_scheduled_clean
-        exit_code=$?
+        local setup_rc=$?
         check_update_passive
-        exit $exit_code
+        exit $setup_rc
     fi
 
     # ── Unschedule mode ──
     if [[ "$CLEAN_UNSCHEDULE" == true ]]; then
         unschedule_clean
-        exit_code=$?
+        local unsched_rc=$?
         check_update_passive
-        exit $exit_code
+        exit $unsched_rc
     fi
 
     # ── Auto (non-interactive) mode ──
