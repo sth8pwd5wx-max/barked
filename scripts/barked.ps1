@@ -333,6 +333,43 @@ function Setup-ScheduledClean {
     Write-Host ""
 }
 
+function Unschedule-ScheduledClean {
+    Print-Section "Remove Scheduled Cleaning"
+
+    $config = Load-ScheduledConfig
+    if (-not $config) {
+        Write-Host "  No scheduled cleaning configured" -ForegroundColor DarkYellow
+        return
+    }
+
+    # Remove Task Scheduler entry
+    try {
+        $task = Get-ScheduledTask -TaskName $script:SchedTaskName -ErrorAction SilentlyContinue
+        if ($task) {
+            Unregister-ScheduledTask -TaskName $script:SchedTaskName -Confirm:$false -ErrorAction Stop
+            Write-Host "  Removed scheduled task" -ForegroundColor Green
+        } else {
+            Write-Host "  No scheduled task found" -ForegroundColor DarkYellow
+        }
+    } catch {
+        Write-Host "  ERROR: Failed to remove scheduled task: $_" -ForegroundColor Red
+    }
+
+    # Disable in config
+    if (Test-Path $script:SchedConfigUser) {
+        try {
+            $config = Get-Content $script:SchedConfigUser -Raw | ConvertFrom-Json
+            $config.enabled = $false
+            $config | ConvertTo-Json | Out-File -FilePath $script:SchedConfigUser -Encoding UTF8 -ErrorAction Stop
+            Write-Host "  Disabled scheduled cleaning" -ForegroundColor Green
+        } catch {
+            Write-Host "  ERROR: Failed to update config" -ForegroundColor Red
+        }
+    }
+
+    Write-Host ""
+}
+
 # ═══════════════════════════════════════════════════════════════════
 # OUTPUT UTILITIES
 # ═══════════════════════════════════════════════════════════════════
