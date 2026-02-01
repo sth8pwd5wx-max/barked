@@ -371,6 +371,150 @@ function Unschedule-ScheduledClean {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# SCHEDULED CLEAN: EXECUTION (invoked by Task Scheduler)
+# ═══════════════════════════════════════════════════════════════════
+
+function Send-CleanNotification {
+    param([int]$FileCount, [long]$BytesFreed)
+
+    if ($FileCount -eq 0 -and $BytesFreed -eq 0) { return }
+
+    $sizeStr = Format-CleanBytes $BytesFreed
+    $message = "Cleaned $sizeStr from $FileCount files"
+
+    # Try BurntToast module first
+    if (Get-Module -ListAvailable -Name BurntToast -ErrorAction SilentlyContinue) {
+        try {
+            Import-Module BurntToast -ErrorAction Stop
+            New-BurntToastNotification -Text "Barked Cleaner", $message -ErrorAction Stop
+            return
+        } catch { }
+    }
+
+    # Fallback: Windows Forms MessageBox (non-blocking via job)
+    try {
+        Start-Job -ScriptBlock {
+            Add-Type -AssemblyName System.Windows.Forms
+            [System.Windows.Forms.MessageBox]::Show($using:message, "Barked Cleaner", "OK", "Information") | Out-Null
+        } | Out-Null
+    } catch { }
+}
+
+function Run-ScheduledClean {
+    $lockFile = Join-Path $env:TEMP "barked-clean.lock"
+    $lockTimeout = 7200  # 2 hours in seconds
+
+    # 1. Load config and validate
+    $config = Load-ScheduledConfig
+    if (-not $config) {
+        Write-CleanLogEntry "ERROR" "Failed to load scheduled clean config"
+        return
+    }
+    if (-not $config.enabled) {
+        Write-CleanLogEntry "INFO" "Scheduled cleaning is disabled, skipping"
+        return
+    }
+
+    # 2. Pre-flight: disk space
+    try {
+        $drive = Get-PSDrive C -ErrorAction Stop
+        $freeGB = [math]::Round($drive.Free / 1GB, 1)
+        if ($freeGB -lt 5) {
+            Write-CleanLogEntry "WARN" "Low disk space (${freeGB}GB), skipping scheduled clean"
+            return
+        }
+    } catch { }
+
+    # 3. Pre-flight: battery
+    try {
+        $battery = Get-WmiObject Win32_Battery -ErrorAction SilentlyContinue
+        if ($battery -and $battery.EstimatedChargeRemaining -lt 20 -and $battery.BatteryStatus -ne 2) {
+            Write-CleanLogEntry "WARN" "Low battery ($($battery.EstimatedChargeRemaining)%), skipping scheduled clean"
+            return
+        }
+    } catch { }
+
+    # 4. Lock file
+    if (Test-Path $lockFile) {
+        $lockAge = ((Get-Date) - (Get-Item $lockFile).LastWriteTime).TotalSeconds
+        if ($lockAge -lt $lockTimeout) {
+            Write-CleanLogEntry "INFO" "Another clean is already running (lock age: ${lockAge}s), exiting"
+            return
+        }
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        [IO.File]::Open($lockFile, 'CreateNew', 'Write').Close()
+    } catch {
+        Write-CleanLogEntry "INFO" "Another clean acquired the lock first, exiting"
+        return
+    }
+
+    try {
+        # 5. Set categories from config
+        if (-not $config.categories -or $config.categories.Count -eq 0) {
+            Write-CleanLogEntry "ERROR" "No categories configured for scheduled clean"
+            return
+        }
+
+        foreach ($cat in $script:CleanCatOrder) {
+            $script:CleanCategories[$cat] = $false
+        }
+        foreach ($cat in $config.categories) {
+            if ($script:CleanCategories.ContainsKey($cat)) {
+                $script:CleanCategories[$cat] = $true
+            }
+        }
+
+        # Populate clean targets from enabled categories
+        $script:CleanTargets = @{}
+        foreach ($cat in $script:CleanCatOrder) {
+            if ($script:CleanCategories[$cat]) {
+                foreach ($target in $script:CleanCatTargets[$cat]) {
+                    $script:CleanTargets[$target] = $true
+                }
+            }
+        }
+
+        Write-CleanLogEntry "INFO" "Starting scheduled clean: categories=$($config.categories -join ',')"
+
+        # 6. Run clean (force mode — no confirmation)
+        $script:CleanForce = $true
+        Invoke-CleanExecute
+
+        # 7. Calculate totals
+        $totalFiles = 0
+        $totalBytes = [long]0
+        foreach ($count in $script:CleanResultFiles.Values) { $totalFiles += $count }
+        foreach ($bytes in $script:CleanResultBytes.Values) { $totalBytes += $bytes }
+
+        $totalSizeFmt = Format-CleanBytes $totalBytes
+        Write-CleanLogEntry "INFO" "Scheduled clean completed: $totalFiles files, $totalSizeFmt freed"
+
+        # 8. Notify if enabled
+        if ($config.notify) {
+            Send-CleanNotification -FileCount $totalFiles -BytesFreed $totalBytes
+        }
+
+        # 9. Update last_run timestamp
+        if (Test-Path $script:SchedConfigUser) {
+            try {
+                $cfg = Get-Content $script:SchedConfigUser -Raw | ConvertFrom-Json
+                $cfg.last_run = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                $cfg | ConvertTo-Json | Out-File -FilePath $script:SchedConfigUser -Encoding UTF8 -ErrorAction Stop
+            } catch {
+                Write-CleanLogEntry "WARN" "Failed to update last_run timestamp"
+            }
+        }
+    } finally {
+        # Always remove lock file
+        Remove-Item $lockFile -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-CleanLog
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # OUTPUT UTILITIES
 # ═══════════════════════════════════════════════════════════════════
 function Write-Color {
