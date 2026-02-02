@@ -4990,11 +4990,15 @@ function Main {
         }
 
         Run-AllModules
-        Write-State
-        Print-Summary
+        if ($DryRun) {
+            Write-DryRunReport
+        } else {
+            Write-State
+            Print-Summary
+        }
         Write-Log
         $exitCode = 0
-        if ($script:CountFailed -gt 0) { $exitCode = 1 }
+        if (-not $DryRun -and $script:CountFailed -gt 0) { $exitCode = 1 }
         exit $exitCode
     }
 
@@ -5061,15 +5065,19 @@ function Main {
 
             Run-AllModules
 
-            # Write state after hardening
-            Write-State
+            if ($DryRun) {
+                Write-DryRunReport
+            } else {
+                # Write state after hardening
+                Write-State
 
-            Print-Summary
+                Print-Summary
 
-            switch ($script:OutputMode) {
-                "checklist" { Print-ManualChecklist }
-                "pause"     { } # Already guided
-                "report"    { Write-Report }
+                switch ($script:OutputMode) {
+                    "checklist" { Print-ManualChecklist }
+                    "pause"     { } # Already guided
+                    "report"    { Write-Report }
+                }
             }
 
             Write-Log
