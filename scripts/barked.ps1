@@ -27,7 +27,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
 
-$script:VERSION = "1.4.0"
+$script:VERSION = "1.4.1"
 $script:GITHUB_REPO = "sth8pwd5wx-max/barked"
 $script:DATE = Get-Date -Format "yyyy-MM-dd"
 $script:TIMESTAMP = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
