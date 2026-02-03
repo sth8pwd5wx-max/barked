@@ -246,6 +246,36 @@ barked/
 └── state/                     # Hardening state files
 ```
 
+## Releasing
+
+Both scripts and their SHA256 checksums must be published together. The update and install flows verify downloads against these checksums.
+
+```bash
+# 1. Bump versions
+#    scripts/barked.sh  → readonly VERSION="X.Y.Z"
+#    scripts/barked.ps1 → $script:VERSION = "X.Y.Z"
+
+# 2. Commit and push
+git add scripts/barked.sh scripts/barked.ps1
+git commit -m "chore: bump versions to vX.Y.Z (bash) and vX.Y.Z (ps1)"
+git push
+
+# 3. Generate checksums
+shasum -a 256 scripts/barked.sh > barked.sh.sha256
+shasum -a 256 scripts/barked.ps1 > barked.ps1.sha256
+
+# 4. Create release with all four assets
+gh release create vX.Y.Z \
+  scripts/barked.sh \
+  scripts/barked.ps1 \
+  barked.sh.sha256 \
+  barked.ps1.sha256 \
+  --title "Barked vX.Y.Z" \
+  --notes "Release notes here"
+```
+
+The release **must** include all four files. Without the `.sha256` files, update and install will fail checksum verification and abort.
+
 ## License
 
 TBD
