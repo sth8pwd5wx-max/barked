@@ -4768,6 +4768,25 @@ function Invoke-Update {
         exit 1
     }
 
+    # Download and verify checksum
+    $checksumUrl = "https://github.com/$($script:GITHUB_REPO)/releases/latest/download/barked.ps1.sha256"
+    try {
+        $expectedHash = (Invoke-WebRequest -Uri $checksumUrl -TimeoutSec 10 -ErrorAction Stop).Content.Trim().Split()[0]
+    } catch {
+        Write-ColorLine "Failed to download checksum for verification." Red
+        Remove-Item -Path $tmpFile -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    $actualHash = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash
+    if ($actualHash -ne $expectedHash.ToUpper()) {
+        Write-ColorLine "Checksum verification failed — aborting update." Red
+        Write-ColorLine "Expected: $expectedHash" Red
+        Write-ColorLine "Got:      $actualHash" Red
+        Remove-Item -Path $tmpFile -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
     # Validate syntax
     $errors = $null
     [System.Management.Automation.Language.Parser]::ParseFile($tmpFile, [ref]$null, [ref]$errors) | Out-Null

@@ -570,7 +570,10 @@ except Exception as e:
 PYREAD
 
     if [[ -s "$tmp" ]]; then
-        source "$tmp"
+        # Use file descriptor to prevent symlink race (TOCTOU)
+        exec 3<"$tmp"
+        source /dev/fd/3
+        exec 3<&-
         rm -f "$tmp"
         STATE_EXISTS=true
         return 0
@@ -7099,6 +7102,30 @@ run_update() {
         rm -f "$tmp_file"
         exit 1
     }
+
+    # Download and verify checksum
+    local checksum_url="https://github.com/${GITHUB_REPO}/releases/latest/download/barked.sh.sha256"
+    local expected_hash
+    expected_hash="$(curl -fsSL --connect-timeout 5 --max-time 10 "$checksum_url" 2>/dev/null | awk '{print $1}')" || {
+        echo -e "${RED}Failed to download checksum for verification.${NC}"
+        rm -f "$tmp_file"
+        exit 1
+    }
+    if [[ -z "$expected_hash" ]]; then
+        echo -e "${RED}Failed to download checksum for verification.${NC}"
+        rm -f "$tmp_file"
+        exit 1
+    fi
+
+    local actual_hash
+    actual_hash="$(shasum -a 256 "$tmp_file" | awk '{print $1}')"
+    if [[ "$actual_hash" != "$expected_hash" ]]; then
+        echo -e "${RED}Checksum verification failed — aborting update.${NC}"
+        echo -e "${RED}Expected: ${expected_hash}${NC}"
+        echo -e "${RED}Got:      ${actual_hash}${NC}"
+        rm -f "$tmp_file"
+        exit 1
+    fi
 
     if ! bash -n "$tmp_file" 2>/dev/null; then
         echo -e "${RED}Downloaded file has syntax errors — aborting update.${NC}"

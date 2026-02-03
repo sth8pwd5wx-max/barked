@@ -108,6 +108,24 @@ if ! curl -fsSL --connect-timeout 10 --max-time 60 -o "$TMP_FILE" "$DOWNLOAD_URL
     exit 1
 fi
 
+# Download and verify checksum
+CHECKSUM_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/barked.sh.sha256"
+EXPECTED_HASH="$(curl -fsSL --connect-timeout 10 --max-time 30 "$CHECKSUM_URL" 2>/dev/null | awk '{print $1}')"
+if [[ -z "$EXPECTED_HASH" ]]; then
+    echo -e "${RED}Error: Failed to download checksum for verification${NC}" >&2
+    exit 1
+fi
+
+ACTUAL_HASH="$(shasum -a 256 "$TMP_FILE" | awk '{print $1}')"
+if [[ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]]; then
+    echo -e "${RED}Error: Checksum verification failed. Aborting installation.${NC}" >&2
+    echo -e "${RED}Expected: ${EXPECTED_HASH}${NC}" >&2
+    echo -e "${RED}Got:      ${ACTUAL_HASH}${NC}" >&2
+    exit 1
+fi
+
+echo -e "${GREEN}Checksum verified${NC}"
+
 # ═══════════════════════════════════════════════════════════════════
 # VALIDATE
 # ═══════════════════════════════════════════════════════════════════

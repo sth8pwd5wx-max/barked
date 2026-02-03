@@ -55,6 +55,27 @@ try {
     exit 1
 }
 
+# Download and verify checksum
+$checksumUrl = "https://github.com/$GithubRepo/releases/latest/download/barked.ps1.sha256"
+try {
+    $expectedHash = (Invoke-WebRequest -Uri $checksumUrl -TimeoutSec 30 -ErrorAction Stop).Content.Trim().Split()[0]
+} catch {
+    Write-Host "  Error: Failed to download checksum for verification" -ForegroundColor Red
+    Remove-Item -Path $tmpFile -ErrorAction SilentlyContinue
+    exit 1
+}
+
+$actualHash = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash
+if ($actualHash -ne $expectedHash.ToUpper()) {
+    Write-Host "  Error: Checksum verification failed. Install aborted." -ForegroundColor Red
+    Write-Host "  Expected: $expectedHash" -ForegroundColor Red
+    Write-Host "  Got:      $actualHash" -ForegroundColor Red
+    Remove-Item -Path $tmpFile -ErrorAction SilentlyContinue
+    exit 1
+}
+
+Write-Host "  Checksum verified" -ForegroundColor Green
+
 # ═══════════════════════════════════════════════════════════════════
 # VALIDATE
 # ═══════════════════════════════════════════════════════════════════
