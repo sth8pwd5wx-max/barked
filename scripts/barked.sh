@@ -108,6 +108,26 @@ ROOT_BATCH_FAIL_CMD=""           # Command that failed
 ROOT_BATCH_FAIL_EXIT=0           # Exit code of failed command
 ROOT_BATCH_FAIL_MODULE=""        # Module that failed
 
+# Optimistic sudo: commands matching these patterns skip unprivileged attempt
+ALWAYS_ROOT_PATTERNS=(
+    "defaults write /Library/Preferences"
+    "socketfilterfw"
+    "iptables"
+    "sysctl --system"
+    "systemctl"
+    "ufw"
+    "tee /etc/"
+    "cp /etc/"
+    "sed -i"
+    "aa-enforce"
+    "grub-mkconfig"
+    "update-grub"
+    "usermod"
+    "dpkg-reconfigure"
+    "aide --init"
+    "rkhunter"
+)
+
 # Clean log
 if [[ -d "${SCRIPT_DIR}/../audits" ]]; then
     CLEAN_LOG_FILE="${SCRIPT_DIR}/../audits/clean-log-${DATE}.txt"
@@ -577,6 +597,57 @@ queue_root_command() {
     else
         ROOT_COMMANDS[$module]+=$'\n'"$cmd"
     fi
+}
+
+# Optimistic sudo: try unprivileged first, queue to root batch on permission error
+# NOTE: Arguments are flattened via $* for compatibility with the root batch system
+# (execute_root_batch stores commands as strings in associative arrays and later runs
+# them via eval/sudo bash -c). Call sites must use only hardcoded or pre-validated args.
+try_or_queue_root() {
+    local module="$1"
+    shift
+    local cmd="$*"
+
+    # Respect --no-sudo mode
+    if [[ "$NO_SUDO_MODE" == true ]]; then
+        log_entry "$module" "optimistic" "skip" "Skipped (--no-sudo mode)"
+        return 0
+    fi
+
+    # Check against always-root patterns — skip unprivileged attempt
+    for pattern in "${ALWAYS_ROOT_PATTERNS[@]}"; do
+        if [[ "$cmd" == *"$pattern"* ]]; then
+            queue_root_command "$module" "$cmd"
+            log_entry "$module" "optimistic" "root-pattern" "Matched always-root pattern, queued"
+            return 0
+        fi
+    done
+
+    # Attempt unprivileged execution (suppress stdout and capture stderr)
+    local stderr_file
+    stderr_file="$(mktemp)"
+
+    if eval "$cmd" >/dev/null 2>"$stderr_file"; then
+        rm -f "$stderr_file"
+        log_entry "$module" "optimistic" "ok" "Success without sudo"
+        return 0
+    fi
+
+    local stderr_content
+    stderr_content="$(cat "$stderr_file")"
+    rm -f "$stderr_file"
+
+    # Check if failure was permission-related
+    if echo "$stderr_content" | grep -qiE \
+        "permission denied|operation not permitted|must be root|not authorized|requires admin"; then
+        queue_root_command "$module" "$cmd"
+        log_entry "$module" "optimistic" "queued" "Permission error, queued for root"
+        return 0
+    fi
+
+    # Genuine failure (not permission-related)
+    log_entry "$module" "optimistic" "fail" "Non-permission failure: ${stderr_content:0:200}"
+    return 1
 }
 
 # Set description for a module's root operations
@@ -1168,9 +1239,9 @@ pkg_install() {
             ;;
         linux)
             case "$DISTRO" in
-                debian) run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" 2>/dev/null ;;
-                fedora) run_as_root dnf install -y "$pkg" 2>/dev/null ;;
-                arch)   run_as_root pacman -S --noconfirm "$pkg" 2>/dev/null ;;
+                debian) try_or_queue_root "pkg-install" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" ;;
+                fedora) try_or_queue_root "pkg-install" dnf install -y "$pkg" ;;
+                arch)   try_or_queue_root "pkg-install" pacman -S --noconfirm "$pkg" ;;
             esac
             ;;
     esac
@@ -1206,9 +1277,9 @@ pkg_uninstall() {
         macos)  brew uninstall "$pkg" 2>/dev/null ;;
         linux)
             case "$DISTRO" in
-                debian) run_as_root apt-get remove -y "$pkg" 2>/dev/null ;;
-                fedora) run_as_root dnf remove -y "$pkg" 2>/dev/null ;;
-                arch)   run_as_root pacman -R --noconfirm "$pkg" 2>/dev/null ;;
+                debian) try_or_queue_root "pkg-remove" apt-get remove -y "$pkg" ;;
+                fedora) try_or_queue_root "pkg-remove" dnf remove -y "$pkg" ;;
+                arch)   try_or_queue_root "pkg-remove" pacman -R --noconfirm "$pkg" ;;
             esac
             ;;
     esac
@@ -4083,7 +4154,7 @@ mod_dns_secure() {
         fi
         # Save previous DNS for revert
         STATE_PREVIOUS[dns-secure]="$current_dns"
-        run_as_root networksetup -setdnsservers Wi-Fi 9.9.9.9 149.112.112.112 &>/dev/null
+        try_or_queue_root "dns-secure" networksetup -setdnsservers Wi-Fi 9.9.9.9 149.112.112.112
         if networksetup -getdnsservers Wi-Fi 2>/dev/null | grep -q "9.9.9.9"; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
             log_entry "dns-secure" "apply" "ok" "Set DNS to Quad9 on Wi-Fi"
@@ -4163,7 +4234,7 @@ mod_auto_updates() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades &>/dev/null
+            try_or_queue_root "auto-updates" env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades
             run_as_root dpkg-reconfigure -plow unattended-upgrades &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (unattended-upgrades)" "applied"
             log_entry "auto-updates" "apply" "ok" "Installed unattended-upgrades"
@@ -4175,7 +4246,7 @@ mod_auto_updates() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            run_as_root dnf install -y dnf-automatic &>/dev/null
+            try_or_queue_root "auto-updates" dnf install -y dnf-automatic
             run_as_root systemctl enable --now dnf-automatic-install.timer &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (dnf-automatic)" "applied"
             log_entry "auto-updates" "apply" "ok" "Installed dnf-automatic"
@@ -4437,9 +4508,9 @@ mod_hostname_scrub() {
         fi
         # Save previous hostname for revert
         STATE_PREVIOUS[hostname-scrub]="$current"
-        run_as_root scutil --set ComputerName "$generic"
-        run_as_root scutil --set LocalHostName "$generic"
-        run_as_root scutil --set HostName "$generic"
+        try_or_queue_root "hostname-scrub" scutil --set ComputerName "$generic"
+        try_or_queue_root "hostname-scrub" scutil --set LocalHostName "$generic"
+        try_or_queue_root "hostname-scrub" scutil --set HostName "$generic"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($generic)" "applied"
         log_entry "hostname-scrub" "apply" "ok" "Hostname set to $generic"
         MODULE_RESULT="applied"
@@ -4454,7 +4525,8 @@ mod_hostname_scrub() {
             return
         fi
         STATE_PREVIOUS[hostname-scrub]="$current"
-        run_as_root hostnamectl set-hostname "$generic" &>/dev/null 2>&1 || run_as_root hostname "$generic" 2>/dev/null
+        try_or_queue_root "hostname-scrub" hostnamectl set-hostname "$generic" || \
+            try_or_queue_root "hostname-scrub" hostname "$generic"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($generic)" "applied"
         log_entry "hostname-scrub" "apply" "ok" "Hostname set to $generic"
         MODULE_RESULT="applied"
@@ -5398,9 +5470,9 @@ revert_dns_secure() {
     local prev="${STATE_PREVIOUS[dns-secure]:-}"
     if [[ "$OS" == "macos" ]]; then
         if [[ -n "$prev" && "$prev" != "null" ]]; then
-            run_as_root networksetup -setdnsservers Wi-Fi "$prev" &>/dev/null
+            try_or_queue_root "dns-secure" networksetup -setdnsservers Wi-Fi "$prev"
         else
-            run_as_root networksetup -setdnsservers Wi-Fi Empty &>/dev/null
+            try_or_queue_root "dns-secure" networksetup -setdnsservers Wi-Fi Empty
         fi
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "dns-secure" "revert" "ok" "DNS reset${prev:+ to $prev}"
@@ -5572,14 +5644,15 @@ revert_hostname_scrub() {
         return
     fi
     if [[ "$OS" == "macos" ]]; then
-        run_as_root scutil --set ComputerName "$prev"
-        run_as_root scutil --set LocalHostName "$prev"
-        run_as_root scutil --set HostName "$prev"
+        try_or_queue_root "hostname-scrub" scutil --set ComputerName "$prev"
+        try_or_queue_root "hostname-scrub" scutil --set LocalHostName "$prev"
+        try_or_queue_root "hostname-scrub" scutil --set HostName "$prev"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($prev)" "reverted"
         log_entry "hostname-scrub" "revert" "ok" "Hostname restored to $prev"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
-        run_as_root hostnamectl set-hostname "$prev" &>/dev/null 2>&1 || run_as_root hostname "$prev" 2>/dev/null
+        try_or_queue_root "hostname-scrub" hostnamectl set-hostname "$prev" || \
+            try_or_queue_root "hostname-scrub" hostname "$prev"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($prev)" "reverted"
         log_entry "hostname-scrub" "revert" "ok" "Hostname restored to $prev"
         MODULE_RESULT="reverted"
@@ -6524,54 +6597,125 @@ EOFCONFIG
 }
 
 monitor_menu() {
-    print_section "Monitor Mode"
+    local daemon_installed=false
+    local daemon_running=false
 
-    echo -e "${BOLD}Continuous security monitoring for VPN, supply chain, and network changes.${NC}"
-    echo ""
-
-    # Check if already initialized
-    local init_status="not configured"
-    if [[ -f "$MONITOR_CONFIG_FILE" ]]; then
-        init_status="${GREEN}configured${NC}"
-    fi
-
-    # Check if baseline exists
-    local baseline_status="not created"
-    if [[ -d "$MONITOR_BASELINE_DIR" ]] && [[ -n "$(ls -A "$MONITOR_BASELINE_DIR" 2>/dev/null)" ]]; then
-        baseline_status="${GREEN}exists${NC}"
+    # Check if daemon is installed
+    if [[ "$OS" == "macos" ]]; then
+        [[ -f "$HOME/Library/LaunchAgents/com.barked.monitor.plist" ]] && daemon_installed=true
+    elif [[ "$OS" == "linux" ]]; then
+        [[ -f "$HOME/.config/systemd/user/barked-monitor.service" ]] && daemon_installed=true
     fi
 
     # Check if running
-    local running_status="not running"
     if [[ -f "$MONITOR_PID_FILE" ]]; then
         local pid
         pid="$(cat "$MONITOR_PID_FILE" 2>/dev/null)"
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-            running_status="${GREEN}running (PID: $pid)${NC}"
+            daemon_running=true
         fi
     fi
 
-    echo -e "  Status: config=${init_status}, baseline=${baseline_status}, daemon=${running_status}"
-    echo ""
-    echo -e "  ${GREEN}[1]${NC} Setup     — Initialize monitor configuration"
-    echo -e "  ${GREEN}[2]${NC} Baseline  — Snapshot current system state"
-    echo -e "  ${GREEN}[3]${NC} Start     — Start monitoring daemon"
-    echo -e "  ${GREEN}[4]${NC} Test      — Send a test alert"
-    echo -e "  ${BROWN}[B]${NC} Back      — Return to main menu"
-    echo ""
-
-    while true; do
-        echo -ne "  ${BOLD}Choice:${NC} "
-        read -r choice
-        case "${choice,,}" in
-            1) monitor_init_interactive; monitor_menu; return ;;
-            2) monitor_take_baseline; monitor_menu; return ;;
-            3) run_monitor ;;
-            4) monitor_test_alert; monitor_menu; return ;;
-            b) return ;;
-            *) echo -e "  ${RED}Invalid choice.${NC}" ;;
+    # Also check via system service manager (fallback if PID file is stale)
+    if [[ "$daemon_installed" == true && "$daemon_running" == false ]]; then
+        case "$OS" in
+            macos)
+                # launchctl list returns 0 even for registered-but-stopped; check PID field
+                local lctl_pid
+                lctl_pid=$(launchctl list com.barked.monitor 2>/dev/null | awk 'NR==2 {print $1}')
+                [[ -n "$lctl_pid" && "$lctl_pid" != "-" ]] && daemon_running=true
+                ;;
+            linux) systemctl --user is-active barked-monitor &>/dev/null && daemon_running=true ;;
         esac
-    done
+    fi
+
+    # Route based on state
+    if [[ "$daemon_installed" == false ]]; then
+        monitor_install_wizard
+    elif [[ "$daemon_running" == true ]]; then
+        monitor_management_menu "running"
+    else
+        monitor_management_menu "stopped"
+    fi
+}
+
+monitor_management_menu() {
+    local state="$1"  # "running" or "stopped"
+
+    if [[ "$state" == "running" ]]; then
+        echo ""
+        echo -e "══════════════════════════════════════════════════════════"
+        echo -e "  ${BOLD}Security Monitor -- ${GREEN}Active${NC}"
+        echo -e "══════════════════════════════════════════════════════════"
+        echo ""
+
+        # Gather status info
+        local pid_display="unknown"
+        if [[ -f "$MONITOR_PID_FILE" ]]; then
+            pid_display="$(cat "$MONITOR_PID_FILE" 2>/dev/null)"
+        fi
+        echo -e "  Status:     ${GREEN}Running${NC} (PID $pid_display)"
+
+        # Last check time
+        if [[ -f "$MONITOR_LOG_FILE" ]]; then
+            local last_check
+            last_check=$(grep "Running scheduled check" "$MONITOR_LOG_FILE" 2>/dev/null | tail -1 | cut -d']' -f1 | tr -d '[')
+            [[ -n "$last_check" ]] && echo -e "  Last check: $last_check"
+        fi
+
+        # Alert count (last 24h)
+        local alert_count=0
+        if [[ -f "$MONITOR_LOG_FILE" ]]; then
+            local today
+            today=$(date '+%Y-%m-%d')
+            alert_count=$(grep -c "ALERT.*$today" "$MONITOR_LOG_FILE" 2>/dev/null || echo 0)
+        fi
+        echo -e "  Alerts:     ${alert_count} today"
+        echo ""
+        echo -e "  ${GREEN}[S]${NC} Full status    ${GREEN}[L]${NC} View logs    ${GREEN}[A]${NC} Recent alerts"
+        echo -e "  ${CYAN}[R]${NC} Restart        ${RED}[D]${NC} Disable      ${RED}[U]${NC} Uninstall"
+        echo -e "  ${BROWN}[B]${NC} Back to main menu"
+        echo ""
+
+        while true; do
+            echo -ne "  ${BOLD}Choice:${NC} "
+            read -r choice
+            case "${choice,,}" in
+                s) monitor_cmd_status; monitor_management_menu "running"; return ;;
+                l) monitor_cmd_logs false; monitor_management_menu "running"; return ;;
+                a) monitor_cmd_alerts; monitor_management_menu "running"; return ;;
+                r) monitor_cmd_restart; monitor_menu; return ;;
+                d) monitor_cmd_disable; return ;;
+                u) monitor_cmd_uninstall; return ;;
+                b) return ;;
+                *) echo -e "  ${RED}Invalid choice.${NC}" ;;
+            esac
+        done
+
+    else
+        # Stopped state
+        echo ""
+        echo -e "══════════════════════════════════════════════════════════"
+        echo -e "  ${BOLD}Security Monitor -- ${RED}Stopped${NC}"
+        echo -e "══════════════════════════════════════════════════════════"
+        echo ""
+        echo -e "  The monitor daemon is installed but not running."
+        echo ""
+        echo -e "  ${GREEN}[E]${NC} Enable & start    ${RED}[U]${NC} Uninstall"
+        echo -e "  ${BROWN}[B]${NC} Back to main menu"
+        echo ""
+
+        while true; do
+            echo -ne "  ${BOLD}Choice:${NC} "
+            read -r choice
+            case "${choice,,}" in
+                e) monitor_cmd_enable; monitor_menu; return ;;
+                u) monitor_cmd_uninstall; return ;;
+                b) return ;;
+                *) echo -e "  ${RED}Invalid choice.${NC}" ;;
+            esac
+        done
+    fi
 }
 
 monitor_init_interactive() {
