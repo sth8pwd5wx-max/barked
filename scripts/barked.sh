@@ -481,6 +481,11 @@ declare -A ROOT_MODULES=(
 )
 
 needs_sudo() {
+    # --no-sudo flag bypasses all root operations
+    if [[ "$NO_SUDO_MODE" == true ]]; then
+        return 1
+    fi
+
     # Clean mode with system targets needs root
     if [[ "$CLEAN_MODE" == true ]]; then
         if [[ "${CLEAN_CATEGORIES[system-caches]}" == "1" ]]; then
