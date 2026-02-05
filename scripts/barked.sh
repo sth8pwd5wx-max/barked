@@ -774,6 +774,54 @@ execute_root_batch() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# TWO-PHASE EXECUTION: PHASE RUNNERS
+# ═══════════════════════════════════════════════════════════════════
+run_userspace_modules() {
+    if [[ ${#USERSPACE_MODULES[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    log_entry "PHASE" "userspace" "start" "Beginning user-space modules (${#USERSPACE_MODULES[@]} modules)"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        print_section "Dry Run Preview — User-Space (${#USERSPACE_MODULES[@]} modules)"
+    else
+        print_section "User-Space Modules (${#USERSPACE_MODULES[@]} modules)"
+    fi
+
+    TOTAL_MODULES=${#USERSPACE_MODULES[@]}
+    CURRENT_MODULE=0
+
+    for mod_id in "${USERSPACE_MODULES[@]}"; do
+        run_module "$mod_id" "apply"
+    done
+
+    log_entry "PHASE" "userspace" "complete" "User-space phase complete"
+}
+
+collect_root_commands() {
+    if [[ ${#ROOT_MODULES_LIST[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    log_entry "PHASE" "root-collect" "start" "Collecting root commands (${#ROOT_MODULES_LIST[@]} modules)"
+
+    # Clear any previous state
+    ROOT_COMMANDS=()
+    ROOT_COMMAND_DESCS=()
+
+    for mod_id in "${ROOT_MODULES_LIST[@]}"; do
+        check_module "$mod_id"
+        if [[ "$CHECK_STATUS" != "PASS" ]]; then
+            # Module needs changes - collect its commands
+            collect_root_commands_for_module "$mod_id"
+        fi
+    done
+
+    log_entry "PHASE" "root-collect" "complete" "Collected $(count_root_commands) commands"
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # PACKAGE INSTALL HELPERS
 # ═══════════════════════════════════════════════════════════════════
 pkg_install() {
