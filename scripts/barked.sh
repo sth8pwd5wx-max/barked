@@ -148,6 +148,30 @@ MONITOR_CATEGORIES="supply-chain,cloud-sync,network,dev-env"
 # Alert deduplication tracking
 declare -A MONITOR_LAST_ALERT=()
 
+# Daemon installation state
+MONITOR_DAEMON_MODE=false        # Running as installed daemon
+MONITOR_INSTALL=false            # --install flag
+MONITOR_UNINSTALL=false          # --uninstall flag
+MONITOR_ENABLE=false             # --enable flag
+MONITOR_DISABLE=false            # --disable flag
+MONITOR_RESTART=false            # --restart flag
+MONITOR_STATUS=false             # --status flag
+MONITOR_LOGS=false               # --logs flag
+MONITOR_LOGS_FOLLOW=false        # --logs -f flag
+MONITOR_ALERTS=false             # --alerts flag
+MONITOR_HEALTH=false             # --health flag
+MONITOR_CONFIG=false             # --config flag
+
+# Daemon config (loaded from monitor.conf)
+DAEMON_ENABLED=true
+DAEMON_START_MODE="always"       # "always" | "ac_power" | "manual"
+DAEMON_INSTALLED=false
+
+# Notification detail config
+NOTIFY_SHOW_IMPACT=true
+NOTIFY_SHOW_REMEDIATION=true
+NOTIFY_MACOS_CLICK_ACTION="log"
+
 # Clean category toggles (1=selected, 0=not)
 declare -A CLEAN_CATEGORIES=(
     [system-caches]=0
