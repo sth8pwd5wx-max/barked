@@ -6630,6 +6630,290 @@ monitor_init_interactive() {
     echo -e "    ${CYAN}barked --monitor${NC}             # Start monitoring"
 }
 
+monitor_install_wizard() {
+    print_section "Monitor Daemon Setup"
+
+    echo -e "${BOLD}Install barked monitor as a system daemon for continuous security monitoring.${NC}"
+    echo ""
+
+    # Create directories
+    mkdir -p "$MONITOR_STATE_DIR"
+    mkdir -p "$MONITOR_BASELINE_DIR"
+    mkdir -p "$(dirname "$MONITOR_LOG_FILE")"
+    mkdir -p "$(dirname "$MONITOR_CONFIG_FILE")"
+
+    # Step 1: Startup behavior
+    echo -e "  ${BOLD}Step 1/6: Startup Behavior${NC}"
+    echo -e "  How should the monitor daemon start?"
+    echo ""
+    echo -e "    ${GREEN}[1]${NC} Always on login    — Starts automatically when you log in"
+    echo -e "    ${GREEN}[2]${NC} Conditional        — Only when on AC power (skips on battery)"
+    echo -e "    ${GREEN}[3]${NC} Manual control     — Installed but disabled; enable with --enable"
+    echo ""
+    local start_mode="always"
+    while true; do
+        echo -ne "  ${BOLD}Choice [1]:${NC} "
+        read -r choice
+        choice="${choice:-1}"
+        case "$choice" in
+            1) start_mode="always"; break ;;
+            2) start_mode="ac_power"; break ;;
+            3) start_mode="manual"; break ;;
+            *) echo -e "  ${RED}Invalid choice${NC}" ;;
+        esac
+    done
+    echo ""
+
+    # Step 2: Notification channels
+    echo -e "  ${BOLD}Step 2/6: Notification Channels${NC}"
+    echo -e "  Where should security alerts be sent?"
+    echo ""
+
+    local macos_notify=true
+    local slack_url=""
+    local discord_url=""
+    local webhook_url=""
+
+    if [[ "$OS" == "macos" ]]; then
+        echo -e "    ${GREEN}[✓]${NC} macOS Notification Center (built-in)"
+    fi
+
+    if prompt_yn "  Enable Slack notifications?"; then
+        echo -ne "    Slack webhook URL: "
+        read -r slack_url
+    fi
+
+    if prompt_yn "  Enable Discord notifications?"; then
+        echo -ne "    Discord webhook URL: "
+        read -r discord_url
+    fi
+
+    if prompt_yn "  Enable custom webhook?"; then
+        echo -ne "    Webhook URL: "
+        read -r webhook_url
+    fi
+    echo ""
+
+    # Step 3: Monitoring categories
+    echo -e "  ${BOLD}Step 3/6: Monitoring Categories${NC}"
+    echo -e "  Which security domains to monitor? (all enabled by default)"
+    echo ""
+
+    local cats_network=true cats_supply=true cats_cloud=true cats_dev=true
+
+    echo -e "    ${GREEN}[✓]${NC} Network      — VPN, DNS, firewall, listeners"
+    echo -e "    ${GREEN}[✓]${NC} Supply chain — Homebrew, app signatures, packages"
+    echo -e "    ${GREEN}[✓]${NC} Cloud sync   — Sensitive files, token exposure"
+    echo -e "    ${GREEN}[✓]${NC} Dev env      — Git creds, SSH keys, Docker, IDE"
+    echo ""
+    if ! prompt_yn "  Keep all categories enabled?"; then
+        cats_network=$(prompt_yn "    Monitor network?" && echo true || echo false)
+        cats_supply=$(prompt_yn "    Monitor supply chain?" && echo true || echo false)
+        cats_cloud=$(prompt_yn "    Monitor cloud sync?" && echo true || echo false)
+        cats_dev=$(prompt_yn "    Monitor dev environment?" && echo true || echo false)
+    fi
+
+    local categories=""
+    [[ "$cats_network" == "true" ]] && categories+="network,"
+    [[ "$cats_supply" == "true" ]] && categories+="supply-chain,"
+    [[ "$cats_cloud" == "true" ]] && categories+="cloud-sync,"
+    [[ "$cats_dev" == "true" ]] && categories+="dev-env,"
+    categories="${categories%,}"  # Remove trailing comma
+    echo ""
+
+    # Step 4: Check interval
+    echo -e "  ${BOLD}Step 4/6: Check Interval${NC}"
+    echo -e "  How often should security checks run?"
+    echo ""
+    echo -e "    ${GREEN}[1]${NC} Every 1 minute   — High vigilance, higher CPU"
+    echo -e "    ${GREEN}[2]${NC} Every 5 minutes  — Balanced (recommended)"
+    echo -e "    ${GREEN}[3]${NC} Every 15 minutes — Low overhead"
+    echo -e "    ${GREEN}[4]${NC} Custom           — Enter seconds"
+    echo ""
+    local interval=300
+    while true; do
+        echo -ne "  ${BOLD}Choice [2]:${NC} "
+        read -r choice
+        choice="${choice:-2}"
+        case "$choice" in
+            1) interval=60; break ;;
+            2) interval=300; break ;;
+            3) interval=900; break ;;
+            4)
+                echo -ne "    Seconds: "
+                read -r interval
+                [[ "$interval" =~ ^[0-9]+$ ]] && break
+                echo -e "  ${RED}Invalid number${NC}"
+                ;;
+            *) echo -e "  ${RED}Invalid choice${NC}" ;;
+        esac
+    done
+    echo ""
+
+    # Step 5: Alert threshold
+    echo -e "  ${BOLD}Step 5/6: Alert Threshold${NC}"
+    echo -e "  Minimum severity to trigger notifications?"
+    echo ""
+    echo -e "    ${GREEN}[1]${NC} Warning + Critical — All security changes"
+    echo -e "    ${GREEN}[2]${NC} Critical only      — Only immediate risks"
+    echo ""
+    local severity_min="warning"
+    while true; do
+        echo -ne "  ${BOLD}Choice [1]:${NC} "
+        read -r choice
+        choice="${choice:-1}"
+        case "$choice" in
+            1) severity_min="warning"; break ;;
+            2) severity_min="critical"; break ;;
+            *) echo -e "  ${RED}Invalid choice${NC}" ;;
+        esac
+    done
+    echo ""
+
+    # Step 6: Baseline
+    echo -e "  ${BOLD}Step 6/6: Initial Baseline${NC}"
+    echo -e "  Create security baseline now? This snapshots current state as 'known good'."
+    echo ""
+    local create_baseline=true
+    if ! prompt_yn "  Create baseline? [Y/n]"; then
+        create_baseline=false
+    fi
+    echo ""
+
+    # Write configuration
+    echo -e "  ${BROWN}Installing daemon...${NC}"
+
+    cat > "$MONITOR_CONFIG_FILE" << EOFCONFIG
+# Barked Monitor Configuration
+# Generated: $(date)
+
+# Daemon settings
+DAEMON_ENABLED=true
+DAEMON_START_MODE="${start_mode}"
+DAEMON_INSTALLED=true
+
+# Monitor settings
+MONITOR_INTERVAL=${interval}
+MONITOR_CATEGORIES="${categories}"
+
+# Alert channels
+ALERT_MACOS_NOTIFY=${macos_notify}
+ALERT_SLACK_URL="${slack_url}"
+ALERT_DISCORD_URL="${discord_url}"
+ALERT_WEBHOOK_URL="${webhook_url}"
+
+# Email (configure manually if needed)
+ALERT_EMAIL_ENABLED=false
+ALERT_EMAIL_API_URL=""
+ALERT_EMAIL_API_KEY=""
+ALERT_EMAIL_TO=""
+
+# Alert behavior
+ALERT_COOLDOWN=3600
+ALERT_SEVERITY_MIN="${severity_min}"
+
+# Notification detail
+NOTIFY_SHOW_IMPACT=true
+NOTIFY_SHOW_REMEDIATION=true
+NOTIFY_MACOS_CLICK_ACTION="log"
+EOFCONFIG
+    chmod 600 "$MONITOR_CONFIG_FILE"
+    echo -e "  ${GREEN}✓${NC} Configuration saved to ${MONITOR_CONFIG_FILE}"
+
+    # Create baseline if requested
+    if [[ "$create_baseline" == "true" ]]; then
+        monitor_take_baseline_quiet
+        local baseline_count
+        baseline_count=$(find "$MONITOR_BASELINE_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "  ${GREEN}✓${NC} Baseline created (${baseline_count} items tracked)"
+    fi
+
+    # Install daemon
+    case "$OS" in
+        macos) install_monitor_daemon_macos "$start_mode" ;;
+        linux) install_monitor_daemon_linux "$start_mode" ;;
+    esac
+
+    # Start if not manual mode
+    if [[ "$start_mode" != "manual" ]]; then
+        monitor_daemon_start
+        echo -e "  ${GREEN}✓${NC} Daemon started"
+    else
+        echo -e "  ${GREEN}✓${NC} Daemon installed (disabled - use --enable to start)"
+    fi
+
+    echo ""
+
+    # Test alert
+    if prompt_yn "  Send test alert to verify notifications?"; then
+        local old_cooldown="$ALERT_COOLDOWN"
+        ALERT_COOLDOWN=0
+        monitor_load_config
+        monitor_send_alert "warning" "test" "test" "This is a test alert from barked monitor mode."
+        ALERT_COOLDOWN="$old_cooldown"
+        echo -e "  ${GREEN}✓${NC} Test alert sent — check your configured channels"
+    fi
+
+    echo ""
+    echo -e "  ${GREEN}Monitor daemon is now installed.${NC} Management commands:"
+    echo -e "    ${CYAN}barked --monitor --status${NC}   # Check if running"
+    echo -e "    ${CYAN}barked --monitor --logs${NC}     # View recent activity"
+    echo -e "    ${CYAN}barked --monitor --disable${NC}  # Pause monitoring"
+    echo ""
+}
+
+# Quiet baseline for wizard (no output)
+monitor_take_baseline_quiet() {
+    mkdir -p "$MONITOR_BASELINE_DIR"
+
+    # DNS servers
+    if [[ "$OS" == "macos" ]]; then
+        local dns
+        dns="$(scutil --dns 2>/dev/null | grep 'nameserver\[' | awk '{print $3}' | sort -u | tr '\n' ',' | sed 's/,$//')"
+        echo "$dns" > "${MONITOR_BASELINE_DIR}/dns-servers.txt"
+    fi
+
+    # Listeners
+    local listeners
+    listeners="$(lsof -i -P -n 2>/dev/null | grep LISTEN | awk '{print $1":"$9}' | sort -u)"
+    echo "$listeners" > "${MONITOR_BASELINE_DIR}/listeners.txt"
+
+    # Homebrew
+    if command -v brew &>/dev/null; then
+        brew list --formula 2>/dev/null > "${MONITOR_BASELINE_DIR}/brew-formulae.txt"
+        brew list --cask 2>/dev/null > "${MONITOR_BASELINE_DIR}/brew-casks.txt"
+    fi
+
+    # App signatures
+    if [[ "$OS" == "macos" ]]; then
+        local app_sigs=""
+        for app in /Applications/*.app; do
+            [[ -d "$app" ]] || continue
+            local sig
+            sig="$(codesign -dv "$app" 2>&1 | grep "^TeamIdentifier=" | cut -d= -f2)"
+            app_sigs+="$(basename "$app"):${sig:-unsigned}\n"
+        done
+        echo -e "$app_sigs" > "${MONITOR_BASELINE_DIR}/app-signatures.txt"
+    fi
+
+    # Global packages
+    if command -v npm &>/dev/null; then
+        npm list -g --depth=0 2>/dev/null | tail -n +2 | awk '{print $2}' > "${MONITOR_BASELINE_DIR}/npm-globals.txt"
+    fi
+    if command -v pip3 &>/dev/null; then
+        pip3 list --user 2>/dev/null | tail -n +3 | awk '{print $1}' > "${MONITOR_BASELINE_DIR}/pip-globals.txt"
+    fi
+
+    # IDE extensions
+    for ext_dir in "$HOME/.vscode/extensions" "$HOME/.cursor/extensions"; do
+        if [[ -d "$ext_dir" ]]; then
+            local ide_name
+            ide_name="$(basename "$(dirname "$ext_dir")")"
+            ls -1 "$ext_dir" 2>/dev/null > "${MONITOR_BASELINE_DIR}/${ide_name}-extensions.txt"
+        fi
+    done
+}
+
 # ═══════════════════════════════════════════════════════════════════
 # MONITOR MODE — ALERT SYSTEM
 # ═══════════════════════════════════════════════════════════════════
