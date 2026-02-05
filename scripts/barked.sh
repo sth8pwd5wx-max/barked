@@ -132,8 +132,8 @@ MONITOR_BASELINE_DIR="${HOME}/.config/barked/baselines"
 
 # Alert configuration (loaded from config file)
 ALERT_WEBHOOK_URL=""
-ALERT_SLACK_URL=""
-ALERT_DISCORD_URL=""
+ALERT_LINUX_NOTIFY=true
+MONITOR_LINUX_NOTIFY_WARNED=false
 ALERT_MACOS_NOTIFY=true
 ALERT_EMAIL_ENABLED=false
 ALERT_EMAIL_API_URL=""
@@ -6501,8 +6501,8 @@ MONITOR_CATEGORIES="supply-chain,cloud-sync,network,dev-env"
 
 # Alert channels (configure one or more)
 ALERT_MACOS_NOTIFY=true           # macOS notification center
-ALERT_SLACK_URL=""                # Slack incoming webhook
-ALERT_DISCORD_URL=""              # Discord webhook
+ALERT_LINUX_NOTIFY=true           # Linux desktop notifications
+MONITOR_LINUX_NOTIFY_WARNED=false # Track if notify-send warning shown
 ALERT_WEBHOOK_URL=""              # Generic webhook endpoint
 
 # Email via SMTP API (optional)
