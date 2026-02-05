@@ -5460,9 +5460,9 @@ revert_dns_secure() {
     local prev="${STATE_PREVIOUS[dns-secure]:-}"
     if [[ "$OS" == "macos" ]]; then
         if [[ -n "$prev" && "$prev" != "null" ]]; then
-            run_as_root networksetup -setdnsservers Wi-Fi $prev &>/dev/null
+            try_or_queue_root "dns-secure" networksetup -setdnsservers Wi-Fi "$prev"
         else
-            run_as_root networksetup -setdnsservers Wi-Fi Empty &>/dev/null
+            try_or_queue_root "dns-secure" networksetup -setdnsservers Wi-Fi Empty
         fi
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "reverted"
         log_entry "dns-secure" "revert" "ok" "DNS reset${prev:+ to $prev}"
@@ -5634,14 +5634,14 @@ revert_hostname_scrub() {
         return
     fi
     if [[ "$OS" == "macos" ]]; then
-        run_as_root scutil --set ComputerName "$prev"
-        run_as_root scutil --set LocalHostName "$prev"
-        run_as_root scutil --set HostName "$prev"
+        try_or_queue_root "hostname-scrub" scutil --set ComputerName "$prev"
+        try_or_queue_root "hostname-scrub" scutil --set LocalHostName "$prev"
+        try_or_queue_root "hostname-scrub" scutil --set HostName "$prev"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($prev)" "reverted"
         log_entry "hostname-scrub" "revert" "ok" "Hostname restored to $prev"
         MODULE_RESULT="reverted"
     elif [[ "$OS" == "linux" ]]; then
-        run_as_root hostnamectl set-hostname "$prev" &>/dev/null 2>&1 || run_as_root hostname "$prev" 2>/dev/null
+        try_or_queue_root "hostname-scrub" hostnamectl set-hostname "$prev"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($prev)" "reverted"
         log_entry "hostname-scrub" "revert" "ok" "Hostname restored to $prev"
         MODULE_RESULT="reverted"
