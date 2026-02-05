@@ -222,6 +222,20 @@ barked --modify                  # macOS / Linux
 
 Both options are also available from the wizard menu (`[U]` Uninstall, `[M]` Modify).
 
+## User-Space Only (No Sudo)
+
+Run only modules that don't require root privileges:
+
+```bash
+barked --no-sudo                 # Skip all root-requiring modules
+barked --auto standard --no-sudo # Combine with profiles
+```
+
+Useful for:
+- Managed machines where you don't have sudo
+- Quick partial hardening without elevation
+- Testing user-space modules in isolation
+
 The scripts track applied changes in a state file:
 | Platform | User (primary) | Project (copy) |
 |---|---|---|
