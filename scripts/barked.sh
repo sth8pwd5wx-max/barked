@@ -6501,8 +6501,7 @@ MONITOR_CATEGORIES="supply-chain,cloud-sync,network,dev-env"
 
 # Alert channels (configure one or more)
 ALERT_MACOS_NOTIFY=true           # macOS notification center
-ALERT_LINUX_NOTIFY=true           # Linux desktop notifications
-MONITOR_LINUX_NOTIFY_WARNED=false # Track if notify-send warning shown
+ALERT_LINUX_NOTIFY=true           # Linux desktop notifications (notify-send/kdialog)
 ALERT_WEBHOOK_URL=""              # Generic webhook endpoint
 
 # Email via SMTP API (optional)
