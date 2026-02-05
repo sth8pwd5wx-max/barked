@@ -97,6 +97,17 @@ SCHED_SCHEDULE=""
 SCHED_NOTIFY=""
 declare -a SCHED_CATEGORIES=()
 
+# Two-phase execution state
+NO_SUDO_MODE=false               # --no-sudo flag
+declare -a USERSPACE_MODULES=()  # Modules that don't need root
+declare -a ROOT_MODULES_LIST=()  # Modules that need root (ordered)
+declare -A ROOT_COMMANDS=()      # module -> newline-separated commands
+declare -A ROOT_COMMAND_DESCS=() # module -> human description
+ROOT_BATCH_ABORTED=false         # Set true if root batch fails
+ROOT_BATCH_FAIL_CMD=""           # Command that failed
+ROOT_BATCH_FAIL_EXIT=0           # Exit code of failed command
+ROOT_BATCH_FAIL_MODULE=""        # Module that failed
+
 # Clean log
 if [[ -d "${SCRIPT_DIR}/../audits" ]]; then
     CLEAN_LOG_FILE="${SCRIPT_DIR}/../audits/clean-log-${DATE}.txt"
