@@ -6938,7 +6938,7 @@ monitor_test_alert() {
     local old_cooldown="$ALERT_COOLDOWN"
     ALERT_COOLDOWN=0
 
-    monitor_send_alert "warning" "test" "Test Alert" "This is a test alert from barked monitor mode."
+    monitor_send_alert "warning" "test" "test" "This is a test alert from barked monitor mode."
 
     ALERT_COOLDOWN="$old_cooldown"
     echo -e "  ${GREEN}✓${NC} Test alert sent"
@@ -7069,8 +7069,8 @@ monitor_check_vpn() {
     if [[ "$vpn_status" != "$prev_status" ]]; then
         monitor_state_set "network" "vpn_status" "$vpn_status"
         if [[ "$vpn_status" == "disconnected" && "$prev_status" == "connected" ]]; then
-            monitor_send_alert "critical" "network" "VPN Disconnected" \
-                "Mullvad VPN is no longer connected. Traffic is exposed to ISP."
+            monitor_send_alert "critical" "network" "vpn_disconnected" \
+                "Mullvad VPN is no longer connected"
         fi
     fi
 }
@@ -7092,8 +7092,8 @@ monitor_check_dns() {
         prev_dns="$(monitor_state_get "network" "dns_servers")"
         if [[ "$current_dns" != "$prev_dns" ]]; then
             monitor_state_set "network" "dns_servers" "$current_dns"
-            monitor_send_alert "critical" "network" "DNS Servers Changed" \
-                "DNS changed from baseline. Current: ${current_dns}, Expected: ${baseline_dns}"
+            monitor_send_alert "critical" "network" "dns_changed" \
+                "DNS servers changed from ${baseline_dns} to ${current_dns}"
         fi
     fi
 }
@@ -7117,16 +7117,16 @@ monitor_check_firewall() {
     if [[ "$fw_state" != "$prev_fw" ]]; then
         monitor_state_set "network" "firewall_state" "$fw_state"
         if [[ "$fw_state" == "disabled" && "$prev_fw" == "enabled" ]]; then
-            monitor_send_alert "critical" "network" "Firewall Disabled" \
-                "macOS application firewall has been disabled."
+            monitor_send_alert "critical" "network" "firewall_disabled" \
+                "Firewall changed from enabled to disabled"
         fi
     fi
 
     if [[ "$stealth_state" != "$prev_stealth" ]]; then
         monitor_state_set "network" "stealth_mode" "$stealth_state"
         if [[ "$stealth_state" == "disabled" && "$prev_stealth" == "enabled" ]]; then
-            monitor_send_alert "critical" "network" "Stealth Mode Disabled" \
-                "Firewall stealth mode has been disabled. System now responds to network probes."
+            monitor_send_alert "critical" "network" "stealth_mode_off" \
+                "Stealth mode changed from on to off"
         fi
     fi
 }
@@ -7158,10 +7158,10 @@ monitor_check_listeners() {
             local port
             port="$(echo "$listener" | grep -oE ':[0-9]+$' | tr -d ':')"
             if echo "$suspicious_ports" | grep -qw "$port"; then
-                monitor_send_alert "critical" "network" "Suspicious Listener Detected" \
-                    "New process listening on suspicious port: ${listener}"
+                monitor_send_alert "critical" "network" "suspicious_listener" \
+                    "Process listening on suspicious port: ${listener}"
             else
-                monitor_send_alert "warning" "network" "New Network Listener" \
+                monitor_send_alert "warning" "network" "new_listener" \
                     "New process listening: ${listener}"
             fi
         done
@@ -7197,7 +7197,7 @@ monitor_check_brew_packages() {
         new_formulae="$(comm -23 <(echo "$current_formulae" | tr '|' '\n' | sort) <(echo "$baseline_formulae" | tr '|' '\n' | sort))"
         for pkg in $new_formulae; do
             [[ -z "$pkg" ]] && continue
-            monitor_send_alert "warning" "supply-chain" "New Homebrew Formula" \
+            monitor_send_alert "warning" "supply-chain" "brew_new_package" \
                 "New formula installed: ${pkg}"
         done
     fi
@@ -7207,7 +7207,7 @@ monitor_check_brew_packages() {
         new_casks="$(comm -23 <(echo "$current_casks" | tr '|' '\n' | sort) <(echo "$baseline_casks" | tr '|' '\n' | sort))"
         for pkg in $new_casks; do
             [[ -z "$pkg" ]] && continue
-            monitor_send_alert "warning" "supply-chain" "New Homebrew Cask" \
+            monitor_send_alert "warning" "supply-chain" "brew_new_package" \
                 "New cask installed: ${pkg}"
         done
     fi
@@ -7223,7 +7223,7 @@ monitor_check_brew_packages() {
             prev_warned="$(monitor_state_get "supply-chain" "warned_tap_${tap//\//_}")"
             if [[ -z "$prev_warned" ]]; then
                 monitor_state_set "supply-chain" "warned_tap_${tap//\//_}" "1"
-                monitor_send_alert "warning" "supply-chain" "Non-Default Homebrew Tap" \
+                monitor_send_alert "warning" "supply-chain" "brew_untrusted_tap" \
                     "Third-party tap detected: ${tap}"
             fi
         fi
@@ -7260,11 +7260,11 @@ monitor_check_app_signatures() {
 
             if [[ -n "$baseline_status" && "$sig_status" != "$baseline_status" ]]; then
                 if [[ "$sig_status" == "unsigned" && "$baseline_status" == "signed" ]]; then
-                    monitor_send_alert "critical" "supply-chain" "App Signature Changed" \
-                        "${app_name} was signed but is now unsigned. Possible tampering."
+                    monitor_send_alert "critical" "supply-chain" "app_signature_changed" \
+                        "${app_name} was signed but is now unsigned"
                 fi
             elif [[ -z "$baseline_status" && "$sig_status" == "unsigned" ]]; then
-                monitor_send_alert "critical" "supply-chain" "Unsigned App Detected" \
+                monitor_send_alert "critical" "supply-chain" "app_unsigned" \
                     "New unsigned application: ${app_name}"
             fi
         fi
@@ -7284,7 +7284,7 @@ monitor_check_global_packages() {
             new_npm="$(comm -23 <(echo "$npm_globals" | tr '|' '\n' | sort) <(echo "$baseline_npm" | tr '|' '\n' | sort))"
             for pkg in $new_npm; do
                 [[ -z "$pkg" ]] && continue
-                monitor_send_alert "warning" "supply-chain" "New Global npm Package" \
+                monitor_send_alert "warning" "supply-chain" "npm_global_new" \
                     "New global npm package: ${pkg}"
             done
         fi
@@ -7305,7 +7305,7 @@ monitor_check_global_packages() {
             new_pip="$(comm -23 <(echo "$pip_globals" | tr '|' '\n' | sort) <(echo "$baseline_pip" | tr '|' '\n' | sort))"
             for pkg in $new_pip; do
                 [[ -z "$pkg" ]] && continue
-                monitor_send_alert "warning" "supply-chain" "New Global pip Package" \
+                monitor_send_alert "warning" "supply-chain" "pip_global_new" \
                     "New global pip package: ${pkg}"
             done
         fi
@@ -7356,8 +7356,8 @@ monitor_check_sync_sensitive_files() {
                 prev_warned="$(monitor_state_get "cloud-sync" "$alert_key")"
                 if [[ -z "$prev_warned" ]]; then
                     monitor_state_set "cloud-sync" "$alert_key" "1"
-                    monitor_send_alert "critical" "cloud-sync" "Sensitive File in Sync Folder" \
-                        "Found ${pattern} files in ${dir_name}. These may be syncing to cloud."
+                    monitor_send_alert "critical" "cloud-sync" "sync_sensitive_file" \
+                        "Found ${pattern} files in ${dir_name}"
                 fi
             fi
         done
@@ -7371,7 +7371,7 @@ monitor_check_token_exposure() {
         prev_warned="$(monitor_state_get "cloud-sync" "netrc_warning")"
         if [[ -z "$prev_warned" ]]; then
             monitor_state_set "cloud-sync" "netrc_warning" "1"
-            monitor_send_alert "warning" "cloud-sync" "Plaintext Credentials File" \
+            monitor_send_alert "warning" "cloud-sync" "netrc_exists" \
                 "~/.netrc exists with plaintext credentials"
         fi
     fi
@@ -7386,7 +7386,7 @@ monitor_check_token_exposure() {
                 prev_warned="$(monitor_state_get "cloud-sync" "history_token_$(basename "$hist_file")")"
                 if [[ -z "$prev_warned" ]]; then
                     monitor_state_set "cloud-sync" "history_token_$(basename "$hist_file")" "1"
-                    monitor_send_alert "critical" "cloud-sync" "Token in Shell History" \
+                    monitor_send_alert "critical" "cloud-sync" "token_in_history" \
                         "Potential API token found in $(basename "$hist_file")"
                 fi
             fi
@@ -7404,7 +7404,7 @@ monitor_check_token_exposure() {
                 prev_warned="$(monitor_state_get "cloud-sync" "perms_$(basename "$cred_file")")"
                 if [[ -z "$prev_warned" ]]; then
                     monitor_state_set "cloud-sync" "perms_$(basename "$cred_file")" "1"
-                    monitor_send_alert "warning" "cloud-sync" "Credential File Permissions" \
+                    monitor_send_alert "warning" "cloud-sync" "token_file_permissions" \
                         "$(basename "$cred_file") is world/group readable (${perms})"
                 fi
             fi
@@ -7429,8 +7429,8 @@ monitor_check_git_credentials() {
         prev_warned="$(monitor_state_get "dev-env" "git_credentials_file")"
         if [[ -z "$prev_warned" ]]; then
             monitor_state_set "dev-env" "git_credentials_file" "1"
-            monitor_send_alert "critical" "dev-env" "Git Credentials File" \
-                "~/.git-credentials exists with plaintext credentials. Use credential.helper=osxkeychain instead."
+            monitor_send_alert "critical" "dev-env" "git_credentials_file" \
+                "~/.git-credentials exists with plaintext credentials"
         fi
     fi
 
@@ -7441,7 +7441,7 @@ monitor_check_git_credentials() {
             prev_warned="$(monitor_state_get "dev-env" "gitconfig_token")"
             if [[ -z "$prev_warned" ]]; then
                 monitor_state_set "dev-env" "gitconfig_token" "1"
-                monitor_send_alert "critical" "dev-env" "Token in Git Config" \
+                monitor_send_alert "critical" "dev-env" "git_credential_exposed" \
                     "Potential credential found in ~/.gitconfig"
             fi
         fi
@@ -7467,7 +7467,7 @@ monitor_check_ssh_keys() {
             prev_warned="$(monitor_state_get "dev-env" "ssh_perms_${key_name}")"
             if [[ -z "$prev_warned" ]]; then
                 monitor_state_set "dev-env" "ssh_perms_${key_name}" "1"
-                monitor_send_alert "warning" "dev-env" "SSH Key Permissions" \
+                monitor_send_alert "warning" "dev-env" "ssh_key_permissions" \
                     "${key_name} has permissions ${perms} (should be 600)"
             fi
         fi
@@ -7478,7 +7478,7 @@ monitor_check_ssh_keys() {
             prev_warned="$(monitor_state_get "dev-env" "ssh_nopass_${key_name}")"
             if [[ -z "$prev_warned" ]]; then
                 monitor_state_set "dev-env" "ssh_nopass_${key_name}" "1"
-                monitor_send_alert "warning" "dev-env" "SSH Key No Passphrase" \
+                monitor_send_alert "warning" "dev-env" "ssh_key_no_passphrase" \
                     "${key_name} has no passphrase protection"
             fi
         fi
@@ -7487,7 +7487,7 @@ monitor_check_ssh_keys() {
         local key_type
         key_type="$(ssh-keygen -l -f "$key_file" 2>/dev/null | awk '{print $NF}' | tr -d '()')"
         if [[ "$key_type" == "DSA" ]]; then
-            monitor_send_alert "warning" "dev-env" "Weak SSH Key" \
+            monitor_send_alert "warning" "dev-env" "ssh_key_weak" \
                 "${key_name} uses deprecated DSA algorithm"
         elif [[ "$key_type" == "RSA" ]]; then
             local key_bits
@@ -7497,7 +7497,7 @@ monitor_check_ssh_keys() {
                 prev_warned="$(monitor_state_get "dev-env" "ssh_weak_${key_name}")"
                 if [[ -z "$prev_warned" ]]; then
                     monitor_state_set "dev-env" "ssh_weak_${key_name}" "1"
-                    monitor_send_alert "warning" "dev-env" "Weak SSH Key" \
+                    monitor_send_alert "warning" "dev-env" "ssh_key_weak" \
                         "${key_name} is RSA with only ${key_bits} bits (recommend 4096+)"
                 fi
             fi
@@ -7522,7 +7522,7 @@ monitor_check_docker() {
             prev_warned="$(monitor_state_get "dev-env" "docker_priv_${container}")"
             if [[ -z "$prev_warned" ]]; then
                 monitor_state_set "dev-env" "docker_priv_${container}" "1"
-                monitor_send_alert "critical" "dev-env" "Privileged Container" \
+                monitor_send_alert "critical" "dev-env" "docker_privileged" \
                     "Container '${container}' running with --privileged flag"
             fi
         done
@@ -7540,7 +7540,7 @@ monitor_check_docker() {
             prev_warned="$(monitor_state_get "dev-env" "docker_hostnet_${container}")"
             if [[ -z "$prev_warned" ]]; then
                 monitor_state_set "dev-env" "docker_hostnet_${container}" "1"
-                monitor_send_alert "warning" "dev-env" "Container Host Network" \
+                monitor_send_alert "warning" "dev-env" "docker_host_network" \
                     "Container '${container}' using host network mode"
             fi
         done
@@ -7571,7 +7571,7 @@ monitor_check_ide_extensions() {
             new_exts="$(comm -23 <(echo "$current_exts" | tr '|' '\n' | sort) <(echo "$baseline_exts" | tr '|' '\n' | sort))"
             for ext in $new_exts; do
                 [[ -z "$ext" ]] && continue
-                monitor_send_alert "warning" "dev-env" "New IDE Extension" \
+                monitor_send_alert "warning" "dev-env" "ide_new_extension" \
                     "New ${ide_name} extension: ${ext}"
             done
         fi
