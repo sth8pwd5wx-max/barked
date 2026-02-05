@@ -992,6 +992,95 @@ EOF"
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# TWO-PHASE EXECUTION: MAIN ORCHESTRATOR
+# ═══════════════════════════════════════════════════════════════════
+run_all_modules_twophase() {
+    # Classify modules into user-space and root
+    classify_modules
+
+    log_entry "EXECUTION" "mode" "info" "Two-phase execution: ${#USERSPACE_MODULES[@]} user-space, ${#ROOT_MODULES_LIST[@]} root"
+
+    # ══════════════════════════════════════════════════════════════
+    # PHASE 1: User-space modules (no sudo)
+    # ══════════════════════════════════════════════════════════════
+    run_userspace_modules
+
+    # If --no-sudo or no root modules, we're done
+    if [[ "$NO_SUDO_MODE" == true ]]; then
+        log_entry "EXECUTION" "complete" "info" "Completed in --no-sudo mode"
+        return 0
+    fi
+
+    if [[ ${#ROOT_MODULES_LIST[@]} -eq 0 ]]; then
+        log_entry "EXECUTION" "complete" "info" "No root modules to execute"
+        return 0
+    fi
+
+    # ══════════════════════════════════════════════════════════════
+    # PHASE 2: Collect and preview root commands
+    # ══════════════════════════════════════════════════════════════
+    collect_root_commands
+
+    local total_cmds
+    total_cmds=$(count_root_commands)
+
+    if [[ $total_cmds -eq 0 ]]; then
+        echo ""
+        echo -e "  ${GREEN}All root modules already configured. No changes needed.${NC}"
+        log_entry "EXECUTION" "complete" "info" "Root modules already configured"
+        return 0
+    fi
+
+    # Show preview and get confirmation
+    if ! prompt_root_preview; then
+        return 0
+    fi
+
+    # Log that user reviewed the preview
+    log_entry "PREVIEW" "review" "ok" "User reviewed $total_cmds commands across $(count_root_modules) modules"
+
+    # ══════════════════════════════════════════════════════════════
+    # PHASE 3: Acquire sudo and execute batch
+    # ══════════════════════════════════════════════════════════════
+    if ! acquire_sudo; then
+        echo -e "  ${RED}Cannot proceed without sudo. Root modules skipped.${NC}"
+        log_entry "EXECUTION" "abort" "fail" "Sudo acquisition failed"
+        return 1
+    fi
+
+    execute_root_batch
+    local batch_result=$?
+
+    # ══════════════════════════════════════════════════════════════
+    # PHASE 4: Verify and update state
+    # ══════════════════════════════════════════════════════════════
+    if [[ $batch_result -eq 0 ]]; then
+        # Verify and update state for each root module
+        TOTAL_MODULES=${#ROOT_MODULES_LIST[@]}
+        CURRENT_MODULE=0
+
+        print_section "Verifying Root Modules"
+
+        for mod_id in "${ROOT_MODULES_LIST[@]}"; do
+            ((CURRENT_MODULE++))
+            check_module "$mod_id"
+            if [[ "$CHECK_STATUS" == "PASS" ]]; then
+                print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$mod_id" "applied"
+                log_entry "$mod_id" "verify" "ok" "Verified"
+                state_set_module "$mod_id" "applied"
+                ((COUNT_APPLIED++))
+            else
+                print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$mod_id" "failed"
+                log_entry "$mod_id" "verify" "fail" "Verification failed"
+                ((COUNT_FAILED++))
+            fi
+        done
+    fi
+
+    return $batch_result
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # PACKAGE INSTALL HELPERS
 # ═══════════════════════════════════════════════════════════════════
 pkg_install() {
