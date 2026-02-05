@@ -1230,9 +1230,9 @@ pkg_install() {
             ;;
         linux)
             case "$DISTRO" in
-                debian) run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" 2>/dev/null ;;
-                fedora) run_as_root dnf install -y "$pkg" 2>/dev/null ;;
-                arch)   run_as_root pacman -S --noconfirm "$pkg" 2>/dev/null ;;
+                debian) try_or_queue_root "pkg-install" env DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" ;;
+                fedora) try_or_queue_root "pkg-install" dnf install -y "$pkg" ;;
+                arch)   try_or_queue_root "pkg-install" pacman -S --noconfirm "$pkg" ;;
             esac
             ;;
     esac
@@ -1268,9 +1268,9 @@ pkg_uninstall() {
         macos)  brew uninstall "$pkg" 2>/dev/null ;;
         linux)
             case "$DISTRO" in
-                debian) run_as_root apt-get remove -y "$pkg" 2>/dev/null ;;
-                fedora) run_as_root dnf remove -y "$pkg" 2>/dev/null ;;
-                arch)   run_as_root pacman -R --noconfirm "$pkg" 2>/dev/null ;;
+                debian) try_or_queue_root "pkg-remove" apt-get remove -y "$pkg" ;;
+                fedora) try_or_queue_root "pkg-remove" dnf remove -y "$pkg" ;;
+                arch)   try_or_queue_root "pkg-remove" pacman -R --noconfirm "$pkg" ;;
             esac
             ;;
     esac
