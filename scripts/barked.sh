@@ -1045,7 +1045,7 @@ collect_revert_dns_secure() {
     local prev="${STATE_PREVIOUS[dns-secure]:-}"
     if [[ "$OS" == "macos" ]]; then
         if [[ -n "$prev" ]]; then
-            queue_root_command "dns-secure" "networksetup -setdnsservers Wi-Fi $prev"
+            queue_root_command "dns-secure" "networksetup -setdnsservers Wi-Fi '$prev'"
         else
             queue_root_command "dns-secure" "networksetup -setdnsservers Wi-Fi Empty"
         fi
@@ -5342,7 +5342,7 @@ mod_boot_security() {
         run_as_root tee -a /etc/grub.d/40_custom >/dev/null << GRUBEOF
 # Added by barked.sh v${VERSION}
 set superusers="admin"
-password_pbkdf2 admin ${grub_hash}
+password_pbkdf2 admin "${grub_hash}"
 GRUBEOF
         run_as_root update-grub &>/dev/null || run_as_root grub-mkconfig -o /boot/grub/grub.cfg &>/dev/null
         state_set_module "boot-security" "applied" "grub-password-set"
@@ -5398,7 +5398,7 @@ revert_dns_secure() {
     local prev="${STATE_PREVIOUS[dns-secure]:-}"
     if [[ "$OS" == "macos" ]]; then
         if [[ -n "$prev" && "$prev" != "null" ]]; then
-            run_as_root networksetup -setdnsservers Wi-Fi $prev &>/dev/null
+            run_as_root networksetup -setdnsservers Wi-Fi "$prev" &>/dev/null
         else
             run_as_root networksetup -setdnsservers Wi-Fi Empty &>/dev/null
         fi
