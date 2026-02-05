@@ -6363,6 +6363,118 @@ write_log() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE — ALERT MESSAGE CATALOG
+# ═══════════════════════════════════════════════════════════════════
+
+# Alert titles (severity emoji added dynamically)
+declare -A ALERT_TITLES=(
+    # Network
+    [vpn_disconnected]="VPN Disconnected"
+    [dns_changed]="DNS Servers Changed"
+    [dns_leak_detected]="DNS Leak Detected"
+    [firewall_disabled]="Firewall Disabled"
+    [stealth_mode_off]="Stealth Mode Disabled"
+    [new_listener]="New Network Listener"
+    [suspicious_listener]="Suspicious Port Open"
+    # Supply chain
+    [brew_new_package]="New Homebrew Package"
+    [brew_untrusted_tap]="Non-Default Tap Added"
+    [app_unsigned]="Unsigned App Detected"
+    [app_signature_changed]="App Signature Changed"
+    [npm_global_new]="New Global npm Package"
+    [pip_global_new]="New Global pip Package"
+    # Cloud sync
+    [sync_sensitive_file]="Sensitive File in Sync Folder"
+    [icloud_documents_sync]="Desktop/Documents Syncing"
+    [token_in_history]="Token in Shell History"
+    [token_file_permissions]="Credential File Exposed"
+    [netrc_exists]="Plaintext Credentials File"
+    # Dev environment
+    [git_credentials_file]="Git Credentials File"
+    [git_credential_exposed]="Token in Git Config"
+    [ssh_key_permissions]="SSH Key Permissions"
+    [ssh_key_no_passphrase]="SSH Key Unprotected"
+    [ssh_key_weak]="Weak SSH Key"
+    [docker_privileged]="Privileged Container"
+    [docker_host_network]="Container Host Network"
+    [ide_new_extension]="New IDE Extension"
+    # Test
+    [test]="Test Alert"
+)
+
+# Impact explanations (why this matters)
+declare -A ALERT_IMPACTS=(
+    # Network
+    [vpn_disconnected]="Your real IP is visible to websites and your ISP can monitor all traffic"
+    [dns_changed]="DNS queries may be logged by untrusted resolvers; potential for DNS spoofing"
+    [dns_leak_detected]="ISP DNS resolver in use despite VPN; your browsing destinations are exposed"
+    [firewall_disabled]="Inbound connections now allowed; system exposed to network attacks"
+    [stealth_mode_off]="System responds to probes; visible to network scanners"
+    [new_listener]="New process accepting network connections"
+    [suspicious_listener]="Process listening on known-malicious port (common RAT/backdoor)"
+    # Supply chain
+    [brew_new_package]="Package installed outside baseline; supply chain change"
+    [brew_untrusted_tap]="Third-party tap added; packages not vetted by Homebrew"
+    [app_unsigned]="App has no code signature; could be tampered or malicious"
+    [app_signature_changed]="App signature differs from baseline; possible tampering"
+    [npm_global_new]="Global npm package installed; supply chain addition"
+    [pip_global_new]="Global pip package installed; supply chain addition"
+    # Cloud sync
+    [sync_sensitive_file]="Credentials syncing to cloud; exposure risk"
+    [icloud_documents_sync]="Files auto-upload to iCloud; sensitive local files may be cloud-stored"
+    [token_in_history]="API token/key persisted to disk in shell history"
+    [token_file_permissions]="Credential file world-readable; other users/processes can access"
+    [netrc_exists]="Plaintext credentials in legacy auth file"
+    # Dev environment
+    [git_credentials_file]="Plaintext tokens stored; high-value target"
+    [git_credential_exposed]="Hardcoded token visible to processes"
+    [ssh_key_permissions]="Private key readable by others"
+    [ssh_key_no_passphrase]="Stolen key = immediate access"
+    [ssh_key_weak]="Cryptographically weak key algorithm"
+    [docker_privileged]="Container has full host access"
+    [docker_host_network]="Container has no network isolation"
+    [ide_new_extension]="Extension can access files and network"
+    # Test
+    [test]="This is a test alert"
+)
+
+# Remediation steps (how to fix)
+declare -A ALERT_REMEDIATIONS=(
+    # Network
+    [vpn_disconnected]="Run 'mullvad connect' or open Mullvad app"
+    [dns_changed]="Review new servers. Restore with: networksetup -setdnsservers Wi-Fi <your-dns>"
+    [dns_leak_detected]="Check VPN DNS settings. Mullvad: enable 'Block DNS not from Mullvad'"
+    [firewall_disabled]="Re-enable: System Settings → Network → Firewall → On"
+    [stealth_mode_off]="Re-enable: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on"
+    [new_listener]="Verify with 'lsof -i :<port>'. If unexpected: kill <pid>"
+    [suspicious_listener]="Investigate: lsof -i :<port> then kill -9 <pid>"
+    # Supply chain
+    [brew_new_package]="Verify: brew info <name>. If expected: barked --monitor --baseline"
+    [brew_untrusted_tap]="Review: brew tap-info <tap>. Remove if unknown: brew untap <tap>"
+    [app_unsigned]="Verify source. Re-download from official site or remove app"
+    [app_signature_changed]="Compare versions. Re-download from official source"
+    [npm_global_new]="Verify: npm info <package>. If expected, update baseline"
+    [pip_global_new]="Verify: pip show <package>. If expected, update baseline"
+    # Cloud sync
+    [sync_sensitive_file]="Move file outside sync folder or add to sync exclusions"
+    [icloud_documents_sync]="System Settings → Apple ID → iCloud → Drive → disable Desktop/Documents"
+    [token_in_history]="Clear: history -c && rm ~/.<shell>_history. Rotate exposed token"
+    [token_file_permissions]="Fix: chmod 600 <file>"
+    [netrc_exists]="Migrate to credential helpers. Remove: rm ~/.netrc after updating auth"
+    # Dev environment
+    [git_credentials_file]="Switch to osxkeychain: git config --global credential.helper osxkeychain"
+    [git_credential_exposed]="Remove from config. Use credential helper or environment variables"
+    [ssh_key_permissions]="Fix: chmod 600 <key>"
+    [ssh_key_no_passphrase]="Add passphrase: ssh-keygen -p -f <key>"
+    [ssh_key_weak]="Generate stronger: ssh-keygen -t ed25519"
+    [docker_privileged]="Stop: docker stop <name>. Restart without --privileged"
+    [docker_host_network]="Restart with bridge: docker run --network bridge ..."
+    [ide_new_extension]="Review in IDE. Remove if unknown: Extensions → Uninstall"
+    # Test
+    [test]="No action needed"
+)
+
+# ═══════════════════════════════════════════════════════════════════
 # MONITOR MODE — CONFIG FILE MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════
 monitor_load_config() {
