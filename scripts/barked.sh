@@ -6197,6 +6197,106 @@ monitor_check_global_packages() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE — CLOUD & SYNC CHECKS
+# ═══════════════════════════════════════════════════════════════════
+monitor_check_cloud_sync() {
+    monitor_check_sync_sensitive_files
+    monitor_check_token_exposure
+}
+
+monitor_check_sync_sensitive_files() {
+    # Sensitive file patterns
+    local sensitive_patterns=(".env" "*.pem" "*.key" "id_rsa" "id_ed25519" "credentials.json" "*.p12" "secrets.yaml" ".aws/credentials")
+
+    # Sync folder locations
+    local -a sync_dirs=()
+
+    if [[ "$OS" == "macos" ]]; then
+        # iCloud
+        [[ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ]] && \
+            sync_dirs+=("$HOME/Library/Mobile Documents/com~apple~CloudDocs")
+        # iCloud Desktop & Documents
+        [[ -d "$HOME/Desktop" ]] && sync_dirs+=("$HOME/Desktop")
+        [[ -d "$HOME/Documents" ]] && sync_dirs+=("$HOME/Documents")
+    fi
+
+    # Dropbox
+    [[ -d "$HOME/Dropbox" ]] && sync_dirs+=("$HOME/Dropbox")
+    # Google Drive
+    [[ -d "$HOME/Google Drive" ]] && sync_dirs+=("$HOME/Google Drive")
+    [[ -d "$HOME/My Drive" ]] && sync_dirs+=("$HOME/My Drive")
+    # OneDrive
+    [[ -d "$HOME/OneDrive" ]] && sync_dirs+=("$HOME/OneDrive")
+
+    for sync_dir in "${sync_dirs[@]}"; do
+        for pattern in "${sensitive_patterns[@]}"; do
+            local found
+            found="$(find "$sync_dir" -maxdepth 3 -name "$pattern" -type f 2>/dev/null | head -5)"
+            if [[ -n "$found" ]]; then
+                local dir_name
+                dir_name="$(basename "$sync_dir")"
+                local alert_key="sync_${dir_name}_${pattern}"
+                local prev_warned
+                prev_warned="$(monitor_state_get "cloud-sync" "$alert_key")"
+                if [[ -z "$prev_warned" ]]; then
+                    monitor_state_set "cloud-sync" "$alert_key" "1"
+                    monitor_send_alert "critical" "cloud-sync" "Sensitive File in Sync Folder" \
+                        "Found ${pattern} files in ${dir_name}. These may be syncing to cloud."
+                fi
+            fi
+        done
+    done
+}
+
+monitor_check_token_exposure() {
+    # Check .netrc
+    if [[ -f "$HOME/.netrc" ]]; then
+        local prev_warned
+        prev_warned="$(monitor_state_get "cloud-sync" "netrc_warning")"
+        if [[ -z "$prev_warned" ]]; then
+            monitor_state_set "cloud-sync" "netrc_warning" "1"
+            monitor_send_alert "warning" "cloud-sync" "Plaintext Credentials File" \
+                "~/.netrc exists with plaintext credentials"
+        fi
+    fi
+
+    # Check shell history for tokens
+    local -a history_files=("$HOME/.bash_history" "$HOME/.zsh_history")
+    for hist_file in "${history_files[@]}"; do
+        if [[ -f "$hist_file" ]]; then
+            # Look for token patterns (be careful not to log the actual tokens)
+            if grep -qE "(export.*TOKEN|export.*KEY|curl.*Authorization)" "$hist_file" 2>/dev/null; then
+                local prev_warned
+                prev_warned="$(monitor_state_get "cloud-sync" "history_token_$(basename "$hist_file")")"
+                if [[ -z "$prev_warned" ]]; then
+                    monitor_state_set "cloud-sync" "history_token_$(basename "$hist_file")" "1"
+                    monitor_send_alert "critical" "cloud-sync" "Token in Shell History" \
+                        "Potential API token found in $(basename "$hist_file")"
+                fi
+            fi
+        fi
+    done
+
+    # Check credential file permissions
+    local -a cred_files=("$HOME/.config/gh/hosts.yml" "$HOME/.docker/config.json" "$HOME/.aws/credentials")
+    for cred_file in "${cred_files[@]}"; do
+        if [[ -f "$cred_file" ]]; then
+            local perms
+            perms="$(stat -f "%OLp" "$cred_file" 2>/dev/null || stat -c "%a" "$cred_file" 2>/dev/null)"
+            if [[ "$perms" =~ [0-7][4-7][4-7] ]]; then
+                local prev_warned
+                prev_warned="$(monitor_state_get "cloud-sync" "perms_$(basename "$cred_file")")"
+                if [[ -z "$prev_warned" ]]; then
+                    monitor_state_set "cloud-sync" "perms_$(basename "$cred_file")" "1"
+                    monitor_send_alert "warning" "cloud-sync" "Credential File Permissions" \
+                        "$(basename "$cred_file") is world/group readable (${perms})"
+                fi
+            fi
+        fi
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # ARGUMENT PARSING
 # ═══════════════════════════════════════════════════════════════════
 parse_args() {
