@@ -5920,6 +5920,139 @@ monitor_cleanup() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE — NETWORK CHECKS
+# ═══════════════════════════════════════════════════════════════════
+monitor_check_network() {
+    monitor_check_vpn
+    monitor_check_dns
+    monitor_check_firewall
+    monitor_check_listeners
+}
+
+monitor_check_vpn() {
+    local vpn_status="disconnected"
+
+    # Try Mullvad CLI first
+    if command -v mullvad &>/dev/null; then
+        if mullvad status 2>/dev/null | grep -q "Connected"; then
+            vpn_status="connected"
+        fi
+    else
+        # Fallback: check for utun interfaces (VPN tunnels)
+        if ifconfig 2>/dev/null | grep -q "^utun"; then
+            # Check if Mullvad daemon is running
+            if pgrep -x "mullvad-daemon" &>/dev/null; then
+                vpn_status="connected"
+            fi
+        fi
+    fi
+
+    local prev_status
+    prev_status="$(monitor_state_get "network" "vpn_status")"
+
+    if [[ "$vpn_status" != "$prev_status" ]]; then
+        monitor_state_set "network" "vpn_status" "$vpn_status"
+        if [[ "$vpn_status" == "disconnected" && "$prev_status" == "connected" ]]; then
+            monitor_send_alert "critical" "network" "VPN Disconnected" \
+                "Mullvad VPN is no longer connected. Traffic is exposed to ISP."
+        fi
+    fi
+}
+
+monitor_check_dns() {
+    local current_dns=""
+
+    if [[ "$OS" == "macos" ]]; then
+        current_dns="$(networksetup -getdnsservers Wi-Fi 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
+    else
+        current_dns="$(grep "^nameserver" /etc/resolv.conf 2>/dev/null | awk '{print $2}' | tr '\n' ',' | sed 's/,$//')"
+    fi
+
+    local baseline_dns
+    baseline_dns="$(monitor_baseline_read "dns-servers")"
+
+    if [[ -n "$baseline_dns" && "$current_dns" != "$baseline_dns" ]]; then
+        local prev_dns
+        prev_dns="$(monitor_state_get "network" "dns_servers")"
+        if [[ "$current_dns" != "$prev_dns" ]]; then
+            monitor_state_set "network" "dns_servers" "$current_dns"
+            monitor_send_alert "critical" "network" "DNS Servers Changed" \
+                "DNS changed from baseline. Current: ${current_dns}, Expected: ${baseline_dns}"
+        fi
+    fi
+}
+
+monitor_check_firewall() {
+    if [[ "$OS" != "macos" ]]; then
+        return 0
+    fi
+
+    local fw_state
+    fw_state="$(sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null | grep -o "enabled\|disabled" || echo "unknown")"
+
+    local stealth_state
+    stealth_state="$(sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getstealthmode 2>/dev/null | grep -o "enabled\|disabled" || echo "unknown")"
+
+    local prev_fw
+    prev_fw="$(monitor_state_get "network" "firewall_state")"
+    local prev_stealth
+    prev_stealth="$(monitor_state_get "network" "stealth_mode")"
+
+    if [[ "$fw_state" != "$prev_fw" ]]; then
+        monitor_state_set "network" "firewall_state" "$fw_state"
+        if [[ "$fw_state" == "disabled" && "$prev_fw" == "enabled" ]]; then
+            monitor_send_alert "critical" "network" "Firewall Disabled" \
+                "macOS application firewall has been disabled."
+        fi
+    fi
+
+    if [[ "$stealth_state" != "$prev_stealth" ]]; then
+        monitor_state_set "network" "stealth_mode" "$stealth_state"
+        if [[ "$stealth_state" == "disabled" && "$prev_stealth" == "enabled" ]]; then
+            monitor_send_alert "critical" "network" "Stealth Mode Disabled" \
+                "Firewall stealth mode has been disabled. System now responds to network probes."
+        fi
+    fi
+}
+
+monitor_check_listeners() {
+    local current_listeners
+    current_listeners="$(lsof -i -P -n 2>/dev/null | grep LISTEN | awk '{print $1 ":" $9}' | sort -u | tr '\n' '|' | sed 's/|$//')"
+
+    local baseline_listeners
+    baseline_listeners="$(monitor_baseline_read "listeners")"
+
+    if [[ -z "$baseline_listeners" ]]; then
+        return 0
+    fi
+
+    # Check for new listeners
+    local current_procs
+    current_procs="$(echo "$current_listeners" | tr '|' '\n')"
+    local baseline_procs
+    baseline_procs="$(echo "$baseline_listeners" | tr '|' '\n')"
+
+    local new_listeners
+    new_listeners="$(comm -23 <(echo "$current_procs" | sort) <(echo "$baseline_procs" | sort))"
+
+    if [[ -n "$new_listeners" ]]; then
+        # Check for suspicious ports
+        local suspicious_ports="4444 5555 6666 1337 31337 12345"
+        for listener in $new_listeners; do
+            local port
+            port="$(echo "$listener" | grep -oE ':[0-9]+$' | tr -d ':')"
+            if echo "$suspicious_ports" | grep -qw "$port"; then
+                monitor_send_alert "critical" "network" "Suspicious Listener Detected" \
+                    "New process listening on suspicious port: ${listener}"
+            else
+                monitor_send_alert "warning" "network" "New Network Listener" \
+                    "New process listening: ${listener}"
+            fi
+        done
+    fi
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # ARGUMENT PARSING
 # ═══════════════════════════════════════════════════════════════════
 parse_args() {
