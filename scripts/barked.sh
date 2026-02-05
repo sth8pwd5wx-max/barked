@@ -5843,7 +5843,83 @@ revert_boot_security() {
 # ═══════════════════════════════════════════════════════════════════
 # UNINSTALL FLOW
 # ═══════════════════════════════════════════════════════════════════
+run_uninstall_twophase() {
+    print_section "Full Uninstall (Two-Phase)"
+
+    # Load state and identify applied modules
+    local applied_mods=()
+    if state_read; then
+        for mod in "${!STATE_MODULES[@]}"; do
+            if [[ "${STATE_MODULES[$mod]}" == "applied" ]]; then
+                applied_mods+=("$mod")
+            fi
+        done
+    else
+        detect_applied_modules
+        for mod in "${!STATE_MODULES[@]}"; do
+            if [[ "${STATE_MODULES[$mod]}" == "applied" ]]; then
+                applied_mods+=("$mod")
+            fi
+        done
+    fi
+
+    if [[ ${#applied_mods[@]} -eq 0 ]]; then
+        echo -e "  ${GREEN}No hardening changes detected. Nothing to uninstall.${NC}"
+        return 0
+    fi
+
+    # Classify into user-space and root
+    local userspace_reverts=()
+    local root_reverts=()
+
+    for mod in "${applied_mods[@]}"; do
+        if [[ -n "${ROOT_MODULES[$mod]:-}" ]]; then
+            root_reverts+=("$mod")
+        else
+            userspace_reverts+=("$mod")
+        fi
+    done
+
+    # Phase 1: Revert user-space modules
+    if [[ ${#userspace_reverts[@]} -gt 0 ]]; then
+        print_section "Reverting User-Space Modules (${#userspace_reverts[@]})"
+        TOTAL_MODULES=${#userspace_reverts[@]}
+        CURRENT_MODULE=0
+        for mod in "${userspace_reverts[@]}"; do
+            run_module "$mod" "revert"
+        done
+    fi
+
+    # Phase 2: Preview root reverts
+    if [[ ${#root_reverts[@]} -gt 0 && "$NO_SUDO_MODE" != true ]]; then
+        ROOT_MODULES_LIST=("${root_reverts[@]}")
+        ROOT_COMMANDS=()
+        ROOT_COMMAND_DESCS=()
+
+        for mod in "${root_reverts[@]}"; do
+            local collector="collect_revert_${mod//-/_}"
+            if declare -f "$collector" &>/dev/null; then
+                "$collector"
+            fi
+        done
+
+        if [[ $(count_root_commands) -gt 0 ]]; then
+            prompt_root_preview || return 0
+            acquire_sudo || return 1
+            execute_root_batch
+        fi
+    fi
+
+    state_write
+    echo -e "  ${GREEN}Uninstall complete.${NC}"
+}
+
 run_uninstall() {
+    # Use two-phase uninstall
+    run_uninstall_twophase
+    return
+
+    # --- Original implementation below (kept for reference, now unreachable) ---
     print_section "Full Uninstall"
 
     # Remove scheduled cleaner if configured
