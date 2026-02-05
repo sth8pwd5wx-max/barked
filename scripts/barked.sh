@@ -105,6 +105,38 @@ else
     CLEAN_LOG_FILE="${HOME}/.config/barked/logs/clean-log-${DATE}.txt"
 fi
 
+# ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE GLOBALS
+# ═══════════════════════════════════════════════════════════════════
+MONITOR_MODE=false
+MONITOR_INIT=false
+MONITOR_BASELINE=false
+MONITOR_TEST_ALERT=false
+MONITOR_INTERVAL=300           # seconds between checks (default: 5 min)
+MONITOR_PID_FILE="${HOME}/.config/barked/monitor.pid"
+MONITOR_LOG_FILE="${HOME}/.config/barked/monitor.log"
+MONITOR_CONFIG_FILE="${HOME}/.config/barked/monitor.conf"
+MONITOR_STATE_DIR="${HOME}/.config/barked/state"
+MONITOR_BASELINE_DIR="${HOME}/.config/barked/baselines"
+
+# Alert configuration (loaded from config file)
+ALERT_WEBHOOK_URL=""
+ALERT_SLACK_URL=""
+ALERT_DISCORD_URL=""
+ALERT_MACOS_NOTIFY=true
+ALERT_EMAIL_ENABLED=false
+ALERT_EMAIL_API_URL=""
+ALERT_EMAIL_API_KEY=""
+ALERT_EMAIL_TO=""
+ALERT_COOLDOWN=3600
+ALERT_SEVERITY_MIN="warning"
+
+# Monitor categories to check
+MONITOR_CATEGORIES="supply-chain,cloud-sync,network,dev-env"
+
+# Alert deduplication tracking
+declare -A MONITOR_LAST_ALERT=()
+
 # Clean category toggles (1=selected, 0=not)
 declare -A CLEAN_CATEGORIES=(
     [system-caches]=0
@@ -5594,6 +5626,30 @@ parse_args() {
             --clean-unschedule)
                 CLEAN_UNSCHEDULE=true
                 ;;
+            --monitor)
+                MONITOR_MODE=true
+                ;;
+            --init)
+                MONITOR_INIT=true
+                ;;
+            --baseline)
+                MONITOR_BASELINE=true
+                ;;
+            --test-alert)
+                MONITOR_TEST_ALERT=true
+                ;;
+            --interval)
+                if [[ -z "${2:-}" ]]; then
+                    echo -e "${RED}--interval requires a value in seconds${NC}"
+                    exit 1
+                fi
+                if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    echo -e "${RED}--interval requires a positive integer value in seconds${NC}"
+                    exit 1
+                fi
+                MONITOR_INTERVAL="$2"
+                shift
+                ;;
             --update)
                 run_update
                 ;;
@@ -5621,6 +5677,11 @@ parse_args() {
                 echo "  --clean-scheduled      Execute a scheduled clean run"
                 echo "  --clean-schedule       Set up scheduled cleaning"
                 echo "  --clean-unschedule     Remove scheduled cleaning"
+                echo "  --monitor              Start continuous security monitoring"
+                echo "  --init                 Initialize monitor configuration"
+                echo "  --baseline             Snapshot current state as known-good"
+                echo "  --test-alert           Send a test alert to configured channels"
+                echo "  --interval <secs>      Set monitor check interval (default: 300)"
                 echo "  --version, -v          Show version and exit"
                 echo "  --update               Update barked to the latest version"
                 echo "  --uninstall-self       Remove barked from system PATH"
