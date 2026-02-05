@@ -6678,22 +6678,13 @@ monitor_install_wizard() {
     echo ""
 
     local macos_notify=true
-    local slack_url=""
-    local discord_url=""
+    local linux_notify=true
     local webhook_url=""
 
     if [[ "$OS" == "macos" ]]; then
         echo -e "    ${GREEN}[✓]${NC} macOS Notification Center (built-in)"
-    fi
-
-    if prompt_yn "  Enable Slack notifications?"; then
-        echo -ne "    Slack webhook URL: "
-        read -r slack_url
-    fi
-
-    if prompt_yn "  Enable Discord notifications?"; then
-        echo -ne "    Discord webhook URL: "
-        read -r discord_url
+    elif [[ "$OS" == "linux" ]]; then
+        echo -e "    ${GREEN}[✓]${NC} Linux Desktop Notifications (built-in)"
     fi
 
     if prompt_yn "  Enable custom webhook?"; then
