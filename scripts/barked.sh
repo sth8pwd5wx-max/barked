@@ -4145,7 +4145,7 @@ mod_dns_secure() {
         fi
         # Save previous DNS for revert
         STATE_PREVIOUS[dns-secure]="$current_dns"
-        run_as_root networksetup -setdnsservers Wi-Fi 9.9.9.9 149.112.112.112 &>/dev/null
+        try_or_queue_root "dns-secure" networksetup -setdnsservers Wi-Fi 9.9.9.9 149.112.112.112
         if networksetup -getdnsservers Wi-Fi 2>/dev/null | grep -q "9.9.9.9"; then
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc" "applied"
             log_entry "dns-secure" "apply" "ok" "Set DNS to Quad9 on Wi-Fi"
@@ -4237,7 +4237,7 @@ mod_auto_updates() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            run_as_root dnf install -y dnf-automatic &>/dev/null
+            try_or_queue_root "auto-updates" dnf install -y dnf-automatic
             run_as_root systemctl enable --now dnf-automatic-install.timer &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (dnf-automatic)" "applied"
             log_entry "auto-updates" "apply" "ok" "Installed dnf-automatic"
@@ -4499,9 +4499,9 @@ mod_hostname_scrub() {
         fi
         # Save previous hostname for revert
         STATE_PREVIOUS[hostname-scrub]="$current"
-        run_as_root scutil --set ComputerName "$generic"
-        run_as_root scutil --set LocalHostName "$generic"
-        run_as_root scutil --set HostName "$generic"
+        try_or_queue_root "hostname-scrub" scutil --set ComputerName "$generic"
+        try_or_queue_root "hostname-scrub" scutil --set LocalHostName "$generic"
+        try_or_queue_root "hostname-scrub" scutil --set HostName "$generic"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($generic)" "applied"
         log_entry "hostname-scrub" "apply" "ok" "Hostname set to $generic"
         MODULE_RESULT="applied"
@@ -4516,7 +4516,7 @@ mod_hostname_scrub() {
             return
         fi
         STATE_PREVIOUS[hostname-scrub]="$current"
-        run_as_root hostnamectl set-hostname "$generic" &>/dev/null 2>&1 || run_as_root hostname "$generic" 2>/dev/null
+        try_or_queue_root "hostname-scrub" hostnamectl set-hostname "$generic"
         print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc ($generic)" "applied"
         log_entry "hostname-scrub" "apply" "ok" "Hostname set to $generic"
         MODULE_RESULT="applied"
