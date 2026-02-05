@@ -6743,17 +6743,46 @@ monitor_send_webhook() {
 
 monitor_send_slack() {
     local severity="$1" title="$2" details="$3"
-    local color="#ff0000"
-    [[ "$severity" == "warning" ]] && color="#ffcc00"
+    local color="#ffcc00"
+    [[ "$severity" == "critical" ]] && color="#ff0000"
+
+    local hostname
+    hostname="$(scutil --get ComputerName 2>/dev/null || hostname)"
+    local timestamp
+    timestamp="$(date '+%Y-%m-%d %H:%M')"
+
+    # Build blocks array
+    local blocks="["
+
+    # Header block
+    blocks+="{\"type\":\"header\",\"text\":{\"type\":\"plain_text\",\"text\":\"${BUILT_TITLE}\"}},"
+
+    # Impact section (if available and critical)
+    if [[ -n "$BUILT_IMPACT" && "$severity" == "critical" ]]; then
+        blocks+="{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"${BUILT_IMPACT}\"}},"
+    fi
+
+    # Details with context fields
+    blocks+="{\"type\":\"section\",\"fields\":["
+    blocks+="{\"type\":\"mrkdwn\",\"text\":\"*Details:*\n${details}\"},"
+    blocks+="{\"type\":\"mrkdwn\",\"text\":\"*Host:* ${hostname}\n*Time:* ${timestamp}\"}"
+    blocks+="]},"
+
+    # Remediation section (if available)
+    if [[ -n "$BUILT_REMEDIATION" ]]; then
+        blocks+="{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*Fix:* \`${BUILT_REMEDIATION}\`\"}},"
+    fi
+
+    # Context footer
+    blocks+="{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"barked monitor\"}]}"
+    blocks+="]"
 
     local slack_payload
     slack_payload=$(cat << EOFJSON
 {
   "attachments": [{
     "color": "${color}",
-    "title": "Barked Security Alert: ${title}",
-    "text": "${details}",
-    "footer": "barked monitor"
+    "blocks": ${blocks}
   }]
 }
 EOFJSON
