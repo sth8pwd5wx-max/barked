@@ -7097,6 +7097,271 @@ uninstall_monitor_daemon_linux() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE — MANAGEMENT COMMANDS
+# ═══════════════════════════════════════════════════════════════════
+
+monitor_cmd_status() {
+    print_section "Monitor Status"
+
+    monitor_load_config
+
+    echo -e "  ${BOLD}Configuration:${NC}"
+    if [[ -f "$MONITOR_CONFIG_FILE" ]]; then
+        echo -e "    Config file: ${GREEN}exists${NC}"
+        echo -e "    Interval: ${MONITOR_INTERVAL}s"
+        echo -e "    Categories: ${MONITOR_CATEGORIES}"
+        echo -e "    Severity threshold: ${ALERT_SEVERITY_MIN}"
+    else
+        echo -e "    Config file: ${RED}not found${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${BOLD}Baseline:${NC}"
+    if [[ -d "$MONITOR_BASELINE_DIR" ]] && [[ -n "$(ls -A "$MONITOR_BASELINE_DIR" 2>/dev/null)" ]]; then
+        local count
+        count=$(find "$MONITOR_BASELINE_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "    Baseline: ${GREEN}exists${NC} (${count} files)"
+    else
+        echo -e "    Baseline: ${RED}not created${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${BOLD}Daemon:${NC}"
+    case "$OS" in
+        macos)
+            if launchctl list com.barked.monitor &>/dev/null; then
+                local pid
+                pid=$(launchctl list com.barked.monitor 2>/dev/null | awk 'NR==2 {print $1}')
+                if [[ "$pid" != "-" && -n "$pid" ]]; then
+                    echo -e "    Status: ${GREEN}running${NC} (PID: $pid)"
+                else
+                    echo -e "    Status: ${BROWN}loaded but not running${NC}"
+                fi
+            else
+                echo -e "    Status: ${RED}not installed${NC}"
+            fi
+            ;;
+        linux)
+            if systemctl --user is-active barked-monitor &>/dev/null; then
+                echo -e "    Status: ${GREEN}running${NC}"
+            elif systemctl --user is-enabled barked-monitor &>/dev/null; then
+                echo -e "    Status: ${BROWN}enabled but not running${NC}"
+            else
+                echo -e "    Status: ${RED}not installed${NC}"
+            fi
+            ;;
+    esac
+
+    # Last check time
+    if [[ -f "$MONITOR_LOG_FILE" ]]; then
+        local last_check
+        last_check=$(grep "Running scheduled check" "$MONITOR_LOG_FILE" 2>/dev/null | tail -1 | cut -d']' -f1 | tr -d '[')
+        if [[ -n "$last_check" ]]; then
+            echo -e "    Last check: ${last_check}"
+        fi
+    fi
+    echo ""
+}
+
+monitor_cmd_enable() {
+    print_section "Enable Monitor Daemon"
+
+    case "$OS" in
+        macos)
+            local plist="${HOME}/Library/LaunchAgents/com.barked.monitor.plist"
+            if [[ ! -f "$plist" ]]; then
+                echo -e "  ${RED}Daemon not installed. Run: barked --monitor --install${NC}"
+                return 1
+            fi
+            launchctl enable "gui/$(id -u)/com.barked.monitor"
+            launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || true
+            echo -e "  ${GREEN}✓${NC} Daemon enabled and started"
+            ;;
+        linux)
+            systemctl --user enable barked-monitor
+            systemctl --user start barked-monitor
+            echo -e "  ${GREEN}✓${NC} Daemon enabled and started"
+            ;;
+    esac
+}
+
+monitor_cmd_disable() {
+    print_section "Disable Monitor Daemon"
+
+    case "$OS" in
+        macos)
+            launchctl bootout "gui/$(id -u)/com.barked.monitor" 2>/dev/null || true
+            launchctl disable "gui/$(id -u)/com.barked.monitor" 2>/dev/null || true
+            echo -e "  ${GREEN}✓${NC} Daemon disabled"
+            ;;
+        linux)
+            systemctl --user stop barked-monitor
+            systemctl --user disable barked-monitor
+            echo -e "  ${GREEN}✓${NC} Daemon disabled"
+            ;;
+    esac
+}
+
+monitor_cmd_restart() {
+    print_section "Restart Monitor Daemon"
+
+    case "$OS" in
+        macos)
+            launchctl kickstart -k "gui/$(id -u)/com.barked.monitor" 2>/dev/null || {
+                launchctl stop com.barked.monitor 2>/dev/null
+                launchctl start com.barked.monitor 2>/dev/null
+            }
+            echo -e "  ${GREEN}✓${NC} Daemon restarted"
+            ;;
+        linux)
+            systemctl --user restart barked-monitor
+            echo -e "  ${GREEN}✓${NC} Daemon restarted"
+            ;;
+    esac
+}
+
+monitor_cmd_logs() {
+    local follow="$1"
+
+    if [[ ! -f "$MONITOR_LOG_FILE" ]]; then
+        echo -e "${BROWN}No log file found at ${MONITOR_LOG_FILE}${NC}"
+        return 0
+    fi
+
+    if [[ "$follow" == "true" ]]; then
+        tail -f "$MONITOR_LOG_FILE"
+    else
+        tail -50 "$MONITOR_LOG_FILE"
+    fi
+}
+
+monitor_cmd_alerts() {
+    print_section "Recent Alerts (last 24h)"
+
+    if [[ ! -f "$MONITOR_LOG_FILE" ]]; then
+        echo -e "  ${BROWN}No log file found${NC}"
+        return 0
+    fi
+
+    local yesterday
+    yesterday=$(date -v-1d '+%Y-%m-%d' 2>/dev/null || date -d 'yesterday' '+%Y-%m-%d' 2>/dev/null)
+    local today
+    today=$(date '+%Y-%m-%d')
+
+    local alerts
+    alerts=$(grep "ALERT" "$MONITOR_LOG_FILE" 2>/dev/null | grep -E "^\[($yesterday|$today)" | tail -20)
+
+    if [[ -z "$alerts" ]]; then
+        echo -e "  ${GREEN}No alerts in the last 24 hours${NC}"
+    else
+        echo "$alerts" | while read -r line; do
+            if [[ "$line" == *"critical"* ]]; then
+                echo -e "  ${RED}${line}${NC}"
+            else
+                echo -e "  ${BROWN}${line}${NC}"
+            fi
+        done
+    fi
+    echo ""
+}
+
+monitor_cmd_health() {
+    print_section "Monitor Health Check"
+
+    local issues=0
+
+    # Config check
+    echo -ne "  Config file: "
+    if [[ -f "$MONITOR_CONFIG_FILE" ]]; then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${RED}MISSING${NC}"
+        ((issues++))
+    fi
+
+    # Baseline check
+    echo -ne "  Baseline: "
+    if [[ -d "$MONITOR_BASELINE_DIR" ]] && [[ -n "$(ls -A "$MONITOR_BASELINE_DIR" 2>/dev/null)" ]]; then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${RED}MISSING${NC} (run --baseline)"
+        ((issues++))
+    fi
+
+    # Daemon check
+    echo -ne "  Daemon: "
+    case "$OS" in
+        macos)
+            if launchctl list com.barked.monitor &>/dev/null; then
+                local pid
+                pid=$(launchctl list com.barked.monitor 2>/dev/null | awk 'NR==2 {print $1}')
+                if [[ "$pid" != "-" && -n "$pid" ]]; then
+                    echo -e "${GREEN}RUNNING${NC}"
+                else
+                    echo -e "${BROWN}STOPPED${NC}"
+                    ((issues++))
+                fi
+            else
+                echo -e "${RED}NOT INSTALLED${NC}"
+                ((issues++))
+            fi
+            ;;
+        linux)
+            if systemctl --user is-active barked-monitor &>/dev/null; then
+                echo -e "${GREEN}RUNNING${NC}"
+            else
+                echo -e "${RED}NOT RUNNING${NC}"
+                ((issues++))
+            fi
+            ;;
+    esac
+
+    # Log writeable
+    echo -ne "  Log writeable: "
+    if touch "$MONITOR_LOG_FILE" 2>/dev/null; then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${RED}NO${NC}"
+        ((issues++))
+    fi
+
+    echo ""
+    if [[ $issues -eq 0 ]]; then
+        echo -e "  ${GREEN}All health checks passed${NC}"
+    else
+        echo -e "  ${RED}${issues} issue(s) found${NC}"
+    fi
+    echo ""
+}
+
+monitor_cmd_config() {
+    local editor="${EDITOR:-nano}"
+
+    if [[ ! -f "$MONITOR_CONFIG_FILE" ]]; then
+        echo -e "${BROWN}Config not found. Creating default...${NC}"
+        monitor_write_default_config
+    fi
+
+    "$editor" "$MONITOR_CONFIG_FILE"
+}
+
+monitor_cmd_uninstall() {
+    print_section "Uninstall Monitor Daemon"
+
+    if ! prompt_yn "  Remove monitor daemon? Configuration will be kept."; then
+        echo -e "  Cancelled."
+        return 0
+    fi
+
+    case "$OS" in
+        macos) uninstall_monitor_daemon_macos ;;
+        linux) uninstall_monitor_daemon_linux ;;
+    esac
+
+    echo ""
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # MONITOR MODE — ALERT SYSTEM
 # ═══════════════════════════════════════════════════════════════════
 
