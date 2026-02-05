@@ -4,13 +4,11 @@ import SwiftUI
 struct BarkedApp: App {
     var body: some Scene {
         MenuBarExtra("Barked", systemImage: "shield.checkmark") {
-            Text("Barked — Loading...")
-            Divider()
-            Button("Quit") { NSApplication.shared.terminate(nil) }
+            MenuBarView()
         }
 
         Window("Barked", id: "main") {
-            Text("Barked GUI — coming soon")
+            ContentView()
                 .frame(minWidth: 700, minHeight: 500)
         }
     }
