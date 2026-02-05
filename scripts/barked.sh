@@ -6875,14 +6875,38 @@ monitor_send_macos() {
 
 monitor_send_email() {
     local severity="$1" title="$2" details="$3"
+
+    local hostname
+    hostname="$(scutil --get ComputerName 2>/dev/null || hostname)"
+
+    # Build HTML body
+    local html_body="<h2>${BUILT_TITLE}</h2>"
+
+    if [[ -n "$BUILT_IMPACT" ]]; then
+        html_body+="<p><strong>Impact:</strong> ${BUILT_IMPACT}</p>"
+    fi
+
+    html_body+="<p><strong>Details:</strong> ${details}</p>"
+    html_body+="<p><strong>Host:</strong> ${hostname}</p>"
+
+    if [[ -n "$BUILT_REMEDIATION" ]]; then
+        html_body+="<h3>How to Fix</h3>"
+        html_body+="<p><code>${BUILT_REMEDIATION}</code></p>"
+    fi
+
+    html_body+="<hr><p style=\"color:#666;font-size:12px\">Sent by barked monitor</p>"
+
+    # Subject line
+    local subject="[Barked ${severity^}] ${title} on ${hostname}"
+
     # SendGrid API format
     local email_payload
     email_payload=$(cat << EOFJSON
 {
   "personalizations": [{"to": [{"email": "${ALERT_EMAIL_TO}"}]}],
-  "from": {"email": "barked@localhost"},
-  "subject": "Barked Alert: ${title}",
-  "content": [{"type": "text/plain", "value": "${details}"}]
+  "from": {"email": "barked@localhost", "name": "Barked Security Monitor"},
+  "subject": "${subject}",
+  "content": [{"type": "text/html", "value": "${html_body}"}]
 }
 EOFJSON
 )
