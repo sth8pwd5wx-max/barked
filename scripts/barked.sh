@@ -2095,6 +2095,20 @@ severity_weight() {
     echo "${SEVERITY_WEIGHT[$sev]}"
 }
 
+# Get a brief description of what action a module would take in dry-run mode
+dry_run_description() {
+    local mod_id="$1"
+    # Look up the label from ALL_MODULE_LABELS and extract the description after " — "
+    for label in "${ALL_MODULE_LABELS[@]}"; do
+        if [[ "$label" == "${mod_id} "* ]]; then
+            echo "${BROWN}Will apply: ${label#*— }${NC}"
+            return
+        fi
+    done
+    # Fallback if module not found in labels
+    echo "${BROWN}Will apply hardening${NC}"
+}
+
 # Calculate hardening score for a set of modules
 # Args: $1 = name of array with all module IDs, $2 = name of array with applied module IDs
 # Outputs: "applied_weight total_weight percentage applied_count total_count"
