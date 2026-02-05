@@ -6685,13 +6685,11 @@ build_alert_message() {
 monitor_send_alert() {
     local severity="$1"    # warning|critical
     local category="$2"    # supply-chain|cloud-sync|network|dev-env
-    local title="$3"
-    local details="$4"
+    local alert_key="$3"   # key for message catalog
+    local details="$4"     # dynamic details
 
     local timestamp
     timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-    local hostname
-    hostname="$(scutil --get ComputerName 2>/dev/null || hostname)"
 
     # Check severity threshold
     if [[ "$ALERT_SEVERITY_MIN" == "critical" && "$severity" != "critical" ]]; then
@@ -6699,38 +6697,30 @@ monitor_send_alert() {
     fi
 
     # Check deduplication cooldown
-    local alert_key="${category}_${title}"
-    local last_alert="${MONITOR_LAST_ALERT[$alert_key]:-0}"
+    local cooldown_key="${category}_${alert_key}"
+    local last_alert="${MONITOR_LAST_ALERT[$cooldown_key]:-0}"
     local now
     now="$(date +%s)"
     if (( now - last_alert < ALERT_COOLDOWN )); then
         return 0
     fi
-    MONITOR_LAST_ALERT[$alert_key]="$now"
+    MONITOR_LAST_ALERT[$cooldown_key]="$now"
+
+    # Build detailed message
+    build_alert_message "$alert_key" "$severity" "$details"
+
+    # Get title for logging (without emoji for log)
+    local log_title="${ALERT_TITLES[$alert_key]:-$alert_key}"
 
     # Log the alert
-    monitor_log "ALERT" "[$severity] $category: $title - $details"
-
-    # Build JSON payload
-    local json_payload
-    json_payload=$(cat << EOFJSON
-{
-  "severity": "${severity}",
-  "category": "${category}",
-  "title": "${title}",
-  "details": "${details}",
-  "hostname": "${hostname}",
-  "timestamp": "${timestamp}"
-}
-EOFJSON
-)
+    monitor_log "ALERT" "[$severity] $category: $log_title - $details"
 
     # Send to configured channels
-    [[ -n "$ALERT_WEBHOOK_URL" ]] && monitor_send_webhook "$json_payload"
-    [[ -n "$ALERT_SLACK_URL" ]] && monitor_send_slack "$severity" "$title" "$details"
-    [[ -n "$ALERT_DISCORD_URL" ]] && monitor_send_discord "$severity" "$title" "$details"
-    [[ "$ALERT_MACOS_NOTIFY" == "true" && "$OS" == "macos" ]] && monitor_send_macos "$severity" "$title" "$details"
-    [[ "$ALERT_EMAIL_ENABLED" == "true" ]] && monitor_send_email "$severity" "$title" "$details"
+    [[ -n "$ALERT_WEBHOOK_URL" ]] && monitor_send_webhook "" "$severity" "$category"
+    [[ -n "$ALERT_SLACK_URL" ]] && monitor_send_slack "$severity" "$BUILT_TITLE" "$details"
+    [[ -n "$ALERT_DISCORD_URL" ]] && monitor_send_discord "$severity" "$BUILT_TITLE" "$details"
+    [[ "$ALERT_MACOS_NOTIFY" == "true" && "$OS" == "macos" ]] && monitor_send_macos "$severity" "$BUILT_TITLE" "$details"
+    [[ "$ALERT_EMAIL_ENABLED" == "true" ]] && monitor_send_email "$severity" "$BUILT_TITLE" "$details"
 }
 
 monitor_send_webhook() {
