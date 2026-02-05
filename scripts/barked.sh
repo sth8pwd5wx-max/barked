@@ -549,6 +549,48 @@ classify_modules() {
     done
 }
 
+# Queue a root command for later batch execution
+queue_root_command() {
+    local module="$1"
+    local cmd="$2"
+    if [[ -z "${ROOT_COMMANDS[$module]:-}" ]]; then
+        ROOT_COMMANDS[$module]="$cmd"
+    else
+        ROOT_COMMANDS[$module]+=$'\n'"$cmd"
+    fi
+}
+
+# Set description for a module's root operations
+set_root_description() {
+    local module="$1"
+    local desc="$2"
+    ROOT_COMMAND_DESCS[$module]="$desc"
+}
+
+# Count total root commands queued
+count_root_commands() {
+    local total=0
+    for mod in "${ROOT_MODULES_LIST[@]}"; do
+        if [[ -n "${ROOT_COMMANDS[$mod]:-}" ]]; then
+            local count
+            count=$(echo "${ROOT_COMMANDS[$mod]}" | grep -c .)
+            total=$((total + count))
+        fi
+    done
+    echo "$total"
+}
+
+# Count modules with queued commands
+count_root_modules() {
+    local count=0
+    for mod in "${ROOT_MODULES_LIST[@]}"; do
+        if [[ -n "${ROOT_COMMANDS[$mod]:-}" ]]; then
+            ((count++))
+        fi
+    done
+    echo "$count"
+}
+
 # ═══════════════════════════════════════════════════════════════════
 # PACKAGE INSTALL HELPERS
 # ═══════════════════════════════════════════════════════════════════
