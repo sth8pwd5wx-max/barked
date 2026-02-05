@@ -3693,25 +3693,6 @@ select_profile() {
     echo -e "  ${MAGENTA}[M]${NC} Modify    — Add or remove individual modules"
     echo -e "  ${CYAN}[C]${NC} Clean     — System cleaner (caches, logs, privacy traces)"
 
-    # Check if schedule exists and show status
-    local schedule_text="Schedule — Set up automated cleaning schedule"
-    if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]] || [[ -f "$SCHED_CLEAN_CONFIG_PROJECT" ]]; then
-        # Try to read the schedule
-        if load_scheduled_config 2>/dev/null; then
-            if [[ "$SCHED_ENABLED" == "true" ]]; then
-                # Convert schedule to display format
-                local sched_display=""
-                case "$SCHED_SCHEDULE" in
-                    daily) sched_display="Daily" ;;
-                    weekly) sched_display="Weekly" ;;
-                    custom) sched_display="Custom" ;;
-                    *) sched_display="$SCHED_SCHEDULE" ;;
-                esac
-                schedule_text="Schedule — Manage automated cleaning (currently: ${sched_display})"
-            fi
-        fi
-    fi
-    echo -e "  ${CYAN}[S]${NC} ${schedule_text}"
     echo -e "  ${YELLOW}[O]${NC} Monitor   — Continuous security monitoring (VPN, supply chain, network)"
 
     echo -e "  ${RED}[U]${NC} Uninstall — Remove all hardening changes"
@@ -3728,7 +3709,6 @@ select_profile() {
             4) PROFILE="advanced"; run_questionnaire; break ;;
             m) RUN_MODE="modify"; break ;;
             c) CLEAN_MODE=true; break ;;
-            s) setup_scheduled_clean; select_profile; return ;;
             o) monitor_menu; select_profile; return ;;
             u) RUN_MODE="uninstall"; break ;;
             q) echo "Exiting."; exit 0 ;;
@@ -10097,6 +10077,41 @@ run_clean() {
     printf "${GREEN}║${NC}${BOLD}%-50s${NC}${GREEN}║${NC}\n" "          BARKED SYSTEM CLEANER v${VERSION}"
     printf "${GREEN}║${NC}%-50s${GREEN}║${NC}\n" "                  macOS / Linux"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+
+    # Landing menu: clean now, schedule, or back
+    echo ""
+    echo -e "  ${GREEN}[1]${NC} Clean now"
+
+    # Build schedule option with status if configured
+    local schedule_text="Schedule automated cleaning"
+    if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]] || [[ -f "$SCHED_CLEAN_CONFIG_PROJECT" ]]; then
+        if load_scheduled_config 2>/dev/null; then
+            if [[ "$SCHED_ENABLED" == "true" ]]; then
+                local sched_display=""
+                case "$SCHED_SCHEDULE" in
+                    daily) sched_display="Daily" ;;
+                    weekly) sched_display="Weekly" ;;
+                    custom) sched_display="Custom" ;;
+                    *) sched_display="$SCHED_SCHEDULE" ;;
+                esac
+                schedule_text="Manage automated cleaning (currently: ${sched_display})"
+            fi
+        fi
+    fi
+    echo -e "  ${CYAN}[S]${NC} ${schedule_text}"
+    echo -e "  ${BROWN}[B] Back${NC}"
+    echo ""
+
+    while true; do
+        echo -ne "  ${BOLD}Choice:${NC} "
+        read -r choice
+        case "${choice,,}" in
+            1) break ;;
+            s) setup_scheduled_clean; run_clean; return ;;
+            b) return ;;
+            *) echo -e "  ${RED}Invalid choice.${NC}" ;;
+        esac
+    done
 
     clean_picker
     clean_drilldown
