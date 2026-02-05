@@ -10295,14 +10295,28 @@ run_uninstall_self() {
     }
 
     if [[ ! -w "$install_path" ]]; then
-        echo -e "${RED}Cannot remove ${install_path} — it is not user-writable.${NC}"
-        echo -e "  Remove it manually:  ${BROWN}sudo rm ${install_path}${NC}"
-        exit 1
+        echo -e "  ${BROWN}Found old root install at ${install_path}.${NC}"
+        echo -e "  Barked should be installed in user space (~/.local/bin)."
+        echo ""
+        echo -ne "  ${BOLD}Remove ${install_path} with sudo? (y/N):${NC} "
+        read -r confirm
+        if [[ "${confirm,,}" != "y" ]]; then
+            echo -e "  ${BROWN}Cancelled.${NC}"
+            exit 0
+        fi
+        acquire_sudo || {
+            echo -e "  ${RED}Cannot remove ${install_path} without admin privileges.${NC}"
+            exit 1
+        }
+        run_as_root rm -f "$install_path"
+        echo -e "  ${GREEN}Removed ${install_path}.${NC}"
+    else
+        rm -f "$install_path"
+        echo -e "  ${GREEN}Removed ${install_path}.${NC}"
     fi
 
-    rm -f "$install_path"
     rm -f "${TMPDIR:-/tmp}/barked-update-check-$(id -u)"
-    echo -e "${GREEN}barked has been removed from ${install_path}.${NC}"
+    echo -e "${GREEN}barked has been uninstalled.${NC}"
     exit 0
 }
 
