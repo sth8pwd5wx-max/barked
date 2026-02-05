@@ -514,6 +514,42 @@ needs_sudo() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# TWO-PHASE EXECUTION: MODULE CLASSIFICATION
+# ═══════════════════════════════════════════════════════════════════
+classify_modules() {
+    USERSPACE_MODULES=()
+    ROOT_MODULES_LIST=()
+
+    for mod in "${ENABLED_MODULES[@]}"; do
+        local needs_root=false
+
+        # Check if in ROOT_MODULES associative array
+        if [[ -n "${ROOT_MODULES[$mod]:-}" ]]; then
+            needs_root=true
+        fi
+
+        # Linux package installs need root
+        if [[ "$OS" == "linux" && "$needs_root" == false ]]; then
+            case "$mod" in
+                firewall-outbound|monitoring-tools|metadata-strip)
+                    needs_root=true
+                    ;;
+            esac
+        fi
+
+        if [[ "$needs_root" == true ]]; then
+            if [[ "$NO_SUDO_MODE" == true ]]; then
+                log_entry "$mod" "skip" "no-sudo" "Skipped (--no-sudo mode)"
+            else
+                ROOT_MODULES_LIST+=("$mod")
+            fi
+        else
+            USERSPACE_MODULES+=("$mod")
+        fi
+    done
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # PACKAGE INSTALL HELPERS
 # ═══════════════════════════════════════════════════════════════════
 pkg_install() {
