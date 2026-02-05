@@ -4225,7 +4225,7 @@ mod_auto_updates() {
                 MODULE_RESULT="skipped"
                 return
             fi
-            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades &>/dev/null
+            try_or_queue_root "auto-updates" env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades
             run_as_root dpkg-reconfigure -plow unattended-upgrades &>/dev/null
             print_status "$CURRENT_MODULE" "$TOTAL_MODULES" "$desc (unattended-upgrades)" "applied"
             log_entry "auto-updates" "apply" "ok" "Installed unattended-upgrades"
