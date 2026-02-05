@@ -5577,6 +5577,111 @@ write_log() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE — CONFIG FILE MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════
+monitor_load_config() {
+    if [[ -f "$MONITOR_CONFIG_FILE" ]]; then
+        # Source the config file (it's shell key=value format)
+        # shellcheck source=/dev/null
+        source "$MONITOR_CONFIG_FILE"
+    fi
+}
+
+monitor_write_default_config() {
+    mkdir -p "$(dirname "$MONITOR_CONFIG_FILE")"
+    cat > "$MONITOR_CONFIG_FILE" << 'EOFCONFIG'
+# Barked Monitor Configuration
+# Generated: $(date)
+
+# Monitor settings
+MONITOR_INTERVAL=300          # seconds between checks (default: 5 min)
+MONITOR_CATEGORIES="supply-chain,cloud-sync,network,dev-env"
+
+# Alert channels (configure one or more)
+ALERT_WEBHOOK_URL=""          # Generic webhook endpoint
+ALERT_SLACK_URL=""            # Slack incoming webhook
+ALERT_DISCORD_URL=""          # Discord webhook
+ALERT_MACOS_NOTIFY=true       # macOS notification center
+
+# Email via SMTP API (optional)
+ALERT_EMAIL_ENABLED=false
+ALERT_EMAIL_API_URL=""        # SendGrid/Mailgun API endpoint
+ALERT_EMAIL_API_KEY=""        # API key
+ALERT_EMAIL_TO=""             # Recipient address
+
+# Alert behavior
+ALERT_COOLDOWN=3600           # Re-alert after N seconds if issue persists
+ALERT_SEVERITY_MIN="warning"  # "warning" or "critical" only
+EOFCONFIG
+    chmod 600 "$MONITOR_CONFIG_FILE"
+    echo -e "  ${GREEN}✓${NC} Created default config: ${MONITOR_CONFIG_FILE}"
+}
+
+monitor_init_interactive() {
+    print_section "Monitor Mode Setup"
+
+    # Create directories
+    mkdir -p "$MONITOR_STATE_DIR"
+    mkdir -p "$MONITOR_BASELINE_DIR"
+    mkdir -p "$(dirname "$MONITOR_LOG_FILE")"
+
+    # Write default config if doesn't exist
+    if [[ ! -f "$MONITOR_CONFIG_FILE" ]]; then
+        monitor_write_default_config
+    else
+        echo -e "  ${BROWN}Config already exists: ${MONITOR_CONFIG_FILE}${NC}"
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}Configure alert channels:${NC}"
+    echo ""
+
+    # macOS notifications
+    if [[ "$OS" == "macos" ]]; then
+        if prompt_yn "Enable macOS notification center alerts?"; then
+            if [[ "$OS" == "macos" ]]; then
+                sed -i '' 's#^ALERT_MACOS_NOTIFY=.*#ALERT_MACOS_NOTIFY=true#' "$MONITOR_CONFIG_FILE"
+            else
+                sed -i 's#^ALERT_MACOS_NOTIFY=.*#ALERT_MACOS_NOTIFY=true#' "$MONITOR_CONFIG_FILE"
+            fi
+            echo -e "  ${GREEN}✓${NC} macOS notifications enabled"
+        fi
+    fi
+
+    # Webhook
+    echo ""
+    echo -ne "  Webhook URL (blank to skip): "
+    read -r webhook_url
+    if [[ -n "$webhook_url" ]]; then
+        if [[ "$OS" == "macos" ]]; then
+            sed -i '' "s#^ALERT_WEBHOOK_URL=.*#ALERT_WEBHOOK_URL=\"${webhook_url}\"#" "$MONITOR_CONFIG_FILE"
+        else
+            sed -i "s#^ALERT_WEBHOOK_URL=.*#ALERT_WEBHOOK_URL=\"${webhook_url}\"#" "$MONITOR_CONFIG_FILE"
+        fi
+        echo -e "  ${GREEN}✓${NC} Webhook configured"
+    fi
+
+    # Slack
+    echo -ne "  Slack webhook URL (blank to skip): "
+    read -r slack_url
+    if [[ -n "$slack_url" ]]; then
+        if [[ "$OS" == "macos" ]]; then
+            sed -i '' "s#^ALERT_SLACK_URL=.*#ALERT_SLACK_URL=\"${slack_url}\"#" "$MONITOR_CONFIG_FILE"
+        else
+            sed -i "s#^ALERT_SLACK_URL=.*#ALERT_SLACK_URL=\"${slack_url}\"#" "$MONITOR_CONFIG_FILE"
+        fi
+        echo -e "  ${GREEN}✓${NC} Slack configured"
+    fi
+
+    echo ""
+    echo -e "  ${GREEN}Setup complete.${NC} Edit ${MONITOR_CONFIG_FILE} for more options."
+    echo ""
+    echo -e "  Next steps:"
+    echo -e "    ${CYAN}barked --monitor --baseline${NC}  # Snapshot current state"
+    echo -e "    ${CYAN}barked --monitor${NC}             # Start monitoring"
+}
+
+# ═══════════════════════════════════════════════════════════════════
 # ARGUMENT PARSING
 # ═══════════════════════════════════════════════════════════════════
 parse_args() {
