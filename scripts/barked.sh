@@ -5710,8 +5710,8 @@ monitor_send_alert() {
     fi
     MONITOR_LAST_ALERT[$alert_key]="$now"
 
-    # Log the alert (monitor_log will be added in Task 4)
-    # monitor_log "ALERT" "[$severity] $category: $title - $details"
+    # Log the alert
+    monitor_log "ALERT" "[$severity] $category: $title - $details"
 
     # Build JSON payload
     local json_payload
@@ -5826,6 +5826,97 @@ monitor_test_alert() {
 
     ALERT_COOLDOWN="$old_cooldown"
     echo -e "  ${GREEN}✓${NC} Test alert sent"
+}
+
+# ═══════════════════════════════════════════════════════════════════
+# MONITOR MODE — LOGGING & STATE
+# ═══════════════════════════════════════════════════════════════════
+monitor_log() {
+    local level="$1"
+    local message="$2"
+    local timestamp
+    timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    echo "[$timestamp] [$level] $message" >> "$MONITOR_LOG_FILE"
+}
+
+monitor_state_read() {
+    local category="$1"
+    local state_file="${MONITOR_STATE_DIR}/${category}.state"
+    if [[ -f "$state_file" ]]; then
+        cat "$state_file"
+    fi
+}
+
+monitor_state_write() {
+    local category="$1"
+    local content="$2"
+    local state_file="${MONITOR_STATE_DIR}/${category}.state"
+    mkdir -p "$MONITOR_STATE_DIR"
+    echo "$content" > "$state_file"
+}
+
+monitor_state_get() {
+    local category="$1"
+    local key="$2"
+    local state_file="${MONITOR_STATE_DIR}/${category}.state"
+    if [[ -f "$state_file" ]]; then
+        grep "^${key}=" "$state_file" 2>/dev/null | cut -d'=' -f2- | head -1
+    fi
+}
+
+monitor_state_set() {
+    local category="$1"
+    local key="$2"
+    local value="$3"
+    local state_file="${MONITOR_STATE_DIR}/${category}.state"
+    mkdir -p "$MONITOR_STATE_DIR"
+
+    if [[ -f "$state_file" ]]; then
+        # Remove old key if exists
+        grep -v "^${key}=" "$state_file" > "${state_file}.tmp" 2>/dev/null || true
+        mv "${state_file}.tmp" "$state_file"
+    fi
+    echo "${key}=${value}" >> "$state_file"
+}
+
+monitor_baseline_read() {
+    local name="$1"
+    local baseline_file="${MONITOR_BASELINE_DIR}/${name}.txt"
+    if [[ -f "$baseline_file" ]]; then
+        cat "$baseline_file"
+    fi
+}
+
+monitor_baseline_write() {
+    local name="$1"
+    local content="$2"
+    mkdir -p "$MONITOR_BASELINE_DIR"
+    echo "$content" > "${MONITOR_BASELINE_DIR}/${name}.txt"
+}
+
+monitor_check_pid() {
+    if [[ -f "$MONITOR_PID_FILE" ]]; then
+        local pid
+        pid="$(cat "$MONITOR_PID_FILE")"
+        if kill -0 "$pid" 2>/dev/null; then
+            echo -e "${RED}Monitor already running (PID: ${pid})${NC}"
+            echo -e "  Stop it with: kill $pid"
+            return 1
+        else
+            # Stale PID file
+            rm -f "$MONITOR_PID_FILE"
+        fi
+    fi
+    return 0
+}
+
+monitor_write_pid() {
+    echo $$ > "$MONITOR_PID_FILE"
+}
+
+monitor_cleanup() {
+    rm -f "$MONITOR_PID_FILE"
+    monitor_log "INFO" "Monitor stopped"
 }
 
 # ═══════════════════════════════════════════════════════════════════
