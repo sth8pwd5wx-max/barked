@@ -1,0 +1,16 @@
+.worktrees/
+audits/
+baseline/
+state/
+docs/plans/
+CLAUDE.md
+
+# Environment and credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+*.keystore
