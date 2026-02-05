@@ -6735,9 +6735,32 @@ EOFJSON
 
 monitor_send_webhook() {
     local payload="$1"
+    local severity="$2"
+    local category="$3"
+
+    # Extended payload with impact/remediation
+    local hostname
+    hostname="$(scutil --get ComputerName 2>/dev/null || hostname)"
+    local timestamp
+    timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+    local extended_payload
+    extended_payload=$(cat << EOFJSON
+{
+  "severity": "${severity}",
+  "category": "${category}",
+  "title": "${BUILT_TITLE}",
+  "impact": "${BUILT_IMPACT}",
+  "details": "${BUILT_DETAILS}",
+  "remediation": "${BUILT_REMEDIATION}",
+  "hostname": "${hostname}",
+  "timestamp": "${timestamp}"
+}
+EOFJSON
+)
     curl -s -X POST \
         -H "Content-Type: application/json" \
-        -d "$payload" \
+        -d "$extended_payload" \
         "$ALERT_WEBHOOK_URL" >/dev/null 2>&1 || true
 }
 
