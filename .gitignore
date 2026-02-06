@@ -5,6 +5,9 @@ state/
 docs/plans/
 CLAUDE.md
 
+# Previews
+gui/preview.html
+
 # Release artifacts
 gui/Barked.app/
 gui/Barked.app.tar.gz
