@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CleanView: View {
     @StateObject private var runner = ScriptRunner()
+    @EnvironmentObject private var mascot: MascotState
     @State private var selectedCategories: Set<String> = []
     @State private var previewOutput: String = ""
     @State private var showingPreview = false
@@ -59,14 +60,17 @@ struct CleanView: View {
             .disabled(selectedCategories.isEmpty || runner.isRunning)
 
             Button("Clean Now") {
-                Task { await runner.run(["--clean", "--force"]) }
+                Task {
+                    mascot.startActivity()
+                    _ = await runner.runPrivileged(["--clean", "--force"])
+                    if runner.exitCode == 0 { mascot.succeed() } else { mascot.reset() }
+                }
             }
             .buttonStyle(.borderedProminent)
             .disabled(selectedCategories.isEmpty || runner.isRunning)
 
             if runner.isRunning {
                 ProgressView().controlSize(.small)
-                MascotView(mood: .windy, pixelSize: 2.5)
             }
         }
 

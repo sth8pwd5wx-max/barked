@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HardenView: View {
     @StateObject private var runner = ScriptRunner()
+    @EnvironmentObject private var mascot: MascotState
     @State private var selectedProfile: Profile?
 
     var body: some View {
@@ -18,7 +19,11 @@ struct HardenView: View {
             if let profile = selectedProfile {
                 HStack {
                     Button("Apply \(profile.displayName) Profile") {
-                        Task { await runner.runPrivileged(profile.cliFlag) }
+                        Task {
+                            mascot.startActivity()
+                            _ = await runner.runPrivileged(profile.cliFlag)
+                            if runner.exitCode == 0 { mascot.succeed() } else { mascot.reset() }
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(runner.isRunning)

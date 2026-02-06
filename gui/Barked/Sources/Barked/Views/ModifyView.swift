@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ModifyView: View {
     @StateObject private var runner = ScriptRunner()
+    @EnvironmentObject private var mascot: MascotState
     @State private var enabledModules: Set<String> = []
 
     var body: some View {
@@ -34,7 +35,11 @@ struct ModifyView: View {
             HStack {
                 Button("Apply \(enabledModules.count) Modules") {
                     let modules = enabledModules.joined(separator: ",")
-                    Task { await runner.runPrivileged(["--modify", "--modules", modules, "--yes"]) }
+                    Task {
+                        mascot.startActivity()
+                        _ = await runner.runPrivileged(["--modify", "--modules", modules, "--yes"])
+                        if runner.exitCode == 0 { mascot.succeed() } else { mascot.reset() }
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(enabledModules.isEmpty || runner.isRunning)

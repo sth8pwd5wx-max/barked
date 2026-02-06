@@ -1,41 +1,50 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="256" height="256" shape-rendering="crispEdges">
-  <!-- Scan animation — transparent background -->
-
-  <!-- Tree crown -->
-  <rect x="7" y="1" width="2" height="1" fill="#2d6a4f"/>
-  <rect x="6" y="2" width="4" height="1" fill="#40916c"/>
-  <rect x="5" y="3" width="6" height="1" fill="#40916c"/>
-  <rect x="6" y="4" width="4" height="1" fill="#2d6a4f"/>
-  <rect x="4" y="5" width="8" height="1" fill="#40916c"/>
-  <rect x="3" y="6" width="10" height="1" fill="#40916c"/>
-  <rect x="5" y="7" width="6" height="1" fill="#2d6a4f"/>
-  <rect x="3" y="8" width="10" height="1" fill="#52b788"/>
-  <rect x="2" y="9" width="12" height="1" fill="#40916c"/>
-  <rect x="2" y="10" width="12" height="1" fill="#2d6a4f"/>
-
-  <!-- Eyes (white) -->
-  <rect x="5" y="5" width="2" height="2" fill="#ffffff"/>
-  <rect x="9" y="5" width="2" height="2" fill="#ffffff"/>
-
-  <!-- Left pupil -->
-  <rect x="6" y="5" width="1" height="1" fill="#111111">
-    <animate attributeName="x" values="6;6;5;5;6;6;6;6" dur="4s" repeatCount="indefinite"/>
-    <animate attributeName="y" values="5;5;5;5;6;6;5;5" dur="4s" repeatCount="indefinite"/>
-  </rect>
-  <!-- Right pupil -->
-  <rect x="10" y="5" width="1" height="1" fill="#111111">
-    <animate attributeName="x" values="10;10;9;9;10;10;10;10" dur="4s" repeatCount="indefinite"/>
-    <animate attributeName="y" values="5;5;5;5;6;6;5;5" dur="4s" repeatCount="indefinite"/>
-  </rect>
-
-  <!-- Smile -->
-  <rect x="7" y="8" width="2" height="1" fill="#1a4d2e"/>
-
-  <!-- Trunk -->
-  <rect x="7" y="11" width="2" height="2" fill="#8B5E3C"/>
-  <rect x="6" y="12" width="4" height="1" fill="#6B3F2A"/>
-
-  <!-- Ground -->
-  <rect x="4" y="13" width="8" height="1" fill="#5C4033"/>
-  <rect x="3" y="14" width="10" height="1" fill="#4a3728"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
+<!-- Scan animation — transparent background -->
+<!-- Star/tip -->
+<rect x="11" y="0" width="2" height="1" fill="#6fcf97"/>
+<!-- Top tier -->
+<rect x="10" y="1" width="4" height="1" fill="#52b788"/>
+<rect x="9" y="2" width="6" height="1" fill="#40916c"/>
+<rect x="8" y="3" width="8" height="1" fill="#2d6a4f"/>
+<!-- Middle tier -->
+<rect x="9" y="4" width="6" height="1" fill="#52b788"/>
+<rect x="8" y="5" width="8" height="1" fill="#6fcf97"/>
+<rect x="7" y="6" width="10" height="1" fill="#52b788"/>
+<rect x="6" y="7" width="12" height="1" fill="#40916c"/>
+<rect x="5" y="8" width="14" height="1" fill="#2d6a4f"/>
+<!-- Bottom tier -->
+<rect x="7" y="9" width="10" height="1" fill="#52b788"/>
+<rect x="6" y="10" width="12" height="1" fill="#6fcf97"/>
+<rect x="5" y="11" width="14" height="1" fill="#52b788"/>
+<rect x="4" y="12" width="16" height="1" fill="#40916c"/>
+<rect x="3" y="13" width="18" height="1" fill="#52b788"/>
+<rect x="3" y="14" width="18" height="1" fill="#40916c"/>
+<rect x="4" y="15" width="16" height="1" fill="#2d6a4f"/>
+<!-- Eyes (white) -->
+<rect x="7" y="10" width="2" height="2" fill="white"/>
+<rect x="14" y="10" width="2" height="2" fill="white"/>
+<!-- Left pupil — scans left, center, down, center -->
+<rect x="8" y="10" width="1" height="1" fill="#111111">
+  <animate attributeName="x" values="8;8;7;7;8;8;8;8" dur="4s" repeatCount="indefinite"/>
+  <animate attributeName="y" values="10;10;10;10;11;11;10;10" dur="4s" repeatCount="indefinite"/>
+</rect>
+<!-- Right pupil — mirrors left -->
+<rect x="15" y="10" width="1" height="1" fill="#111111">
+  <animate attributeName="x" values="15;15;14;14;15;15;15;15" dur="4s" repeatCount="indefinite"/>
+  <animate attributeName="y" values="10;10;10;10;11;11;10;10" dur="4s" repeatCount="indefinite"/>
+</rect>
+<!-- Mouth -->
+<rect x="10" y="12" width="4" height="1" fill="#1a4d2e"/>
+<!-- Trunk -->
+<rect x="10" y="16" width="4" height="1" fill="#8B5E3C"/>
+<rect x="11" y="16" width="1" height="1" fill="#6B3F2A"/>
+<rect x="10" y="17" width="4" height="1" fill="#6B3F2A"/>
+<rect x="10" y="18" width="4" height="1" fill="#8B5E3C"/>
+<rect x="12" y="18" width="1" height="1" fill="#6B3F2A"/>
+<rect x="9" y="19" width="6" height="1" fill="#6B3F2A"/>
+<!-- Ground -->
+<rect x="6" y="20" width="12" height="1" fill="#5C4033"/>
+<rect x="8" y="20" width="1" height="1" fill="#6B3F2A"/>
+<rect x="15" y="20" width="1" height="1" fill="#6B3F2A"/>
+<rect x="5" y="21" width="14" height="1" fill="#4a3728"/>
 </svg>

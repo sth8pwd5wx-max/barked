@@ -40,6 +40,7 @@ class ScriptRunner: ObservableObject {
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = pipe
+        proc.standardInput = FileHandle.nullDevice
 
         self.process = proc
         self.outputPipe = pipe
@@ -55,11 +56,15 @@ class ScriptRunner: ObservableObject {
 
         do {
             try proc.run()
-            proc.waitUntilExit()
-        } catch {
-            await MainActor.run {
-                self.output += "\nError: \(error.localizedDescription)"
+            // Wait off the main thread to keep UI responsive
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    proc.waitUntilExit()
+                    continuation.resume()
+                }
             }
+        } catch {
+            self.output += "\nError: \(error.localizedDescription)"
         }
 
         pipe.fileHandleForReading.readabilityHandler = nil

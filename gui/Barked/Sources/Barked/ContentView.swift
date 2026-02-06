@@ -22,6 +22,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @State private var selection: SidebarItem? = .harden
+    @StateObject private var mascotState = MascotState()
 
     var body: some View {
         NavigationSplitView {
@@ -34,8 +35,8 @@ struct ContentView: View {
 
                 Spacer()
 
-                MascotView(mood: .idle, pixelSize: 3)
-                    .padding(.bottom, 8)
+                MascotView(mood: mascotState.mood, pixelSize: 5)
+                    .padding(.bottom, 32)
                     .opacity(0.85)
             }
         } detail: {
@@ -48,6 +49,7 @@ struct ContentView: View {
             case nil: welcomeView
             }
         }
+        .environmentObject(mascotState)
     }
 
     private var welcomeView: some View {
