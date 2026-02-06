@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { background: #111; color: #ccc; font-family: monospace; padding: 2rem; }
+  h1 { color: #52b788; text-align: center; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; max-width: 1050px; margin: 0 auto; }
+  .card { text-align: center; background: #1a1a2e; border-radius: 12px; padding: 1.5rem; }
+  .card img { width: 192px; height: 192px; image-rendering: pixelated; }
+  .card h3 { color: #40916c; margin: 0.5rem 0 0.25rem; }
+  .card p { font-size: 0.85rem; color: #888; margin: 0; }
+</style>
+</head>
+<body>
+  <h1>Barked Mascot — Animations</h1>
+  <div class="grid">
+    <div class="card">
+      <img src="barked-mascot.svg">
+      <h3>Static</h3>
+      <p>Base mascot, no animation</p>
+    </div>
+    <div class="card">
+      <img src="barked-mascot-scan.svg">
+      <h3>Scan</h3>
+      <p>Pupils look left, down, right</p>
+    </div>
+    <div class="card">
+      <img src="barked-mascot-cheer.svg">
+      <h3>Cheer</h3>
+      <p>Happy bounce + sparkles (for updates)</p>
+    </div>
+    <div class="card">
+      <img src="barked-mascot-idle.svg">
+      <h3>Idle (Full)</h3>
+      <p>Blink + scan + gentle sway</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="mascots/barked-mascot-idle.svg" width="128" height="128" alt="Barked mascot — a pixelated pine tree standing guard">
+</p>
+
 # Barked
 
 **Tough outer layer for your system.**
@@ -18,19 +22,12 @@ Under the bark:
 
 ## Get Barked
 
-**macOS / Linux (userspace install - recommended):**
+**macOS / Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | bash
 ```
 
 Installs to `~/.local/bin`. No sudo needed for install or updates.
-
-**macOS / Linux (system-wide install):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/sth8pwd5wx-max/barked/main/install.sh | sudo bash
-```
-
-Installs to `/usr/local/bin`.
 
 **Windows (PowerShell as Administrator):**
 ```powershell
@@ -254,6 +251,10 @@ barked/
 │   ├── barked.sh              # macOS + Linux wizard
 │   ├── barked.ps1             # Windows wizard
 │   └── weekly-audit.sh        # macOS weekly audit
+├── gui/
+│   ├── Barked/                # SwiftUI macOS menubar app (macOS 13+)
+│   └── build.sh               # Build Barked.app bundle
+├── mascots/                   # Pixel art mascot SVGs (static + animated)
 ├── docs/plans/                # Design documents
 ├── audits/                    # Audit reports
 ├── baseline/                  # Known-good system snapshots

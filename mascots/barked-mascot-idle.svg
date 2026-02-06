@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="256" height="256" shape-rendering="crispEdges">
+  <!-- Animated: Idle — combined blink + scan + gentle sway. The "full" idle. -->
+  <rect width="16" height="16" fill="#1a1a2e"/>
+
+  <!-- Everything sways gently -->
+  <g>
+    <animateTransform attributeName="transform" type="translate" values="0,0; 0.3,0; 0,0; -0.3,0; 0,0" dur="6s" repeatCount="indefinite"/>
+
+    <!-- Tree crown -->
+    <rect x="7" y="1" width="2" height="1" fill="#2d6a4f"/>
+    <rect x="6" y="2" width="4" height="1" fill="#40916c"/>
+    <rect x="5" y="3" width="6" height="1" fill="#40916c"/>
+    <rect x="6" y="4" width="4" height="1" fill="#2d6a4f"/>
+    <rect x="4" y="5" width="8" height="1" fill="#40916c"/>
+    <rect x="3" y="6" width="10" height="1" fill="#40916c"/>
+    <rect x="5" y="7" width="6" height="1" fill="#2d6a4f"/>
+    <rect x="3" y="8" width="10" height="1" fill="#52b788"/>
+    <rect x="2" y="9" width="12" height="1" fill="#40916c"/>
+    <rect x="2" y="10" width="12" height="1" fill="#2d6a4f"/>
+
+    <!-- Left eye white -->
+    <rect x="5" y="5" width="2" height="2" fill="#ffffff">
+      <animate attributeName="height" values="2;0;2" keyTimes="0;0.5;1" dur="0.15s" begin="3.5s;8.5s;13.5s" fill="freeze"/>
+    </rect>
+    <!-- Right eye white -->
+    <rect x="9" y="5" width="2" height="2" fill="#ffffff">
+      <animate attributeName="height" values="2;0;2" keyTimes="0;0.5;1" dur="0.15s" begin="3.5s;8.5s;13.5s" fill="freeze"/>
+    </rect>
+
+    <!-- Left pupil — scans + hides during blink -->
+    <rect x="6" y="5" width="1" height="1" fill="#1a1a2e">
+      <animate attributeName="x" values="6;6;5;5;6;6;6;6;6;6" dur="8s" repeatCount="indefinite"/>
+      <animate attributeName="y" values="5;5;5;5;6;6;5;5;5;5" dur="8s" repeatCount="indefinite"/>
+      <animate attributeName="height" values="1;0;1" keyTimes="0;0.5;1" dur="0.15s" begin="3.5s;8.5s;13.5s" fill="freeze"/>
+    </rect>
+    <!-- Right pupil -->
+    <rect x="10" y="5" width="1" height="1" fill="#1a1a2e">
+      <animate attributeName="x" values="10;10;9;9;10;10;10;10;10;10" dur="8s" repeatCount="indefinite"/>
+      <animate attributeName="y" values="5;5;5;5;6;6;5;5;5;5" dur="8s" repeatCount="indefinite"/>
+      <animate attributeName="height" values="1;0;1" keyTimes="0;0.5;1" dur="0.15s" begin="3.5s;8.5s;13.5s" fill="freeze"/>
+    </rect>
+
+    <!-- Blink lids -->
+    <rect x="5" y="6" width="2" height="1" fill="#40916c" opacity="0">
+      <animate attributeName="opacity" values="0;1;0" keyTimes="0;0.5;1" dur="0.15s" begin="3.5s;8.5s;13.5s" fill="freeze"/>
+    </rect>
+    <rect x="9" y="6" width="2" height="1" fill="#40916c" opacity="0">
+      <animate attributeName="opacity" values="0;1;0" keyTimes="0;0.5;1" dur="0.15s" begin="3.5s;8.5s;13.5s" fill="freeze"/>
+    </rect>
+
+    <!-- Smile -->
+    <rect x="7" y="8" width="2" height="1" fill="#1a4d2e"/>
+
+    <!-- Trunk (doesn't sway as much - it's the base) -->
+    <rect x="7" y="11" width="2" height="2" fill="#8B5E3C"/>
+    <rect x="6" y="12" width="4" height="1" fill="#6B3F2A"/>
+  </g>
+
+  <!-- Ground (stays still) -->
+  <rect x="4" y="13" width="8" height="1" fill="#5C4033"/>
+  <rect x="3" y="14" width="10" height="1" fill="#4a3728"/>
+</svg>
