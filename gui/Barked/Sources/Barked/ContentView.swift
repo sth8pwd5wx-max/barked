@@ -22,23 +22,14 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @State private var selection: SidebarItem? = .harden
-    @StateObject private var mascotState = MascotState()
 
     var body: some View {
         NavigationSplitView {
-            VStack {
-                List(SidebarItem.allCases, selection: $selection) { item in
-                    Label(item.rawValue, systemImage: item.icon)
-                        .tag(item)
-                }
-                .listStyle(.sidebar)
-
-                Spacer()
-
-                MascotView(mood: mascotState.mood, pixelSize: 5)
-                    .padding(.bottom, 32)
-                    .opacity(0.85)
+            List(SidebarItem.allCases, selection: $selection) { item in
+                Label(item.rawValue, systemImage: item.icon)
+                    .tag(item)
             }
+            .listStyle(.sidebar)
         } detail: {
             switch selection {
             case .harden: HardenView()
@@ -49,13 +40,11 @@ struct ContentView: View {
             case nil: welcomeView
             }
         }
-        .environmentObject(mascotState)
     }
 
     private var welcomeView: some View {
         VStack(spacing: 12) {
             Spacer()
-            MascotView(mood: .idle, pixelSize: 6)
             Text("Welcome to Barked")
                 .font(.title2.bold())
             Text("Tough outer layer for your system.\nPick a section from the sidebar to get started.")

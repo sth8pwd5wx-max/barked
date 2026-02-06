@@ -2,7 +2,6 @@ import SwiftUI
 
 struct UninstallView: View {
     @StateObject private var runner = ScriptRunner()
-    @EnvironmentObject private var mascot: MascotState
     @State private var confirmed = false
 
     var body: some View {
@@ -29,9 +28,7 @@ struct UninstallView: View {
 
             Button("Uninstall") {
                 Task {
-                    mascot.startActivity()
                     _ = await runner.runPrivileged(["--uninstall", "--yes"])
-                    if runner.exitCode == 0 { mascot.succeed() } else { mascot.reset() }
                 }
             }
             .buttonStyle(.borderedProminent)

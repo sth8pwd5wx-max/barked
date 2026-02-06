@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ModifyView: View {
     @StateObject private var runner = ScriptRunner()
-    @EnvironmentObject private var mascot: MascotState
     @State private var enabledModules: Set<String> = []
 
     var body: some View {
@@ -36,9 +35,7 @@ struct ModifyView: View {
                 Button("Apply \(enabledModules.count) Modules") {
                     let modules = enabledModules.joined(separator: ",")
                     Task {
-                        mascot.startActivity()
                         _ = await runner.runPrivileged(["--modify", "--modules", modules, "--yes"])
-                        if runner.exitCode == 0 { mascot.succeed() } else { mascot.reset() }
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -50,10 +47,6 @@ struct ModifyView: View {
             }
 
             if !runner.output.isEmpty {
-                if !runner.isRunning && runner.exitCode == 0 {
-                    SuccessBanner(message: "Modules applied")
-                }
-
                 OutputLogView(
                     output: runner.output,
                     statusLine: runner.exitCode == 0 ? "Modules applied" : "Finished with errors"

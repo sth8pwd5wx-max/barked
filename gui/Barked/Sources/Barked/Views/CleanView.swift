@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CleanView: View {
     @StateObject private var runner = ScriptRunner()
-    @EnvironmentObject private var mascot: MascotState
     @State private var selectedCategories: Set<String> = []
     @State private var previewOutput: String = ""
     @State private var showingPreview = false
@@ -61,9 +60,7 @@ struct CleanView: View {
 
             Button("Clean Now") {
                 Task {
-                    mascot.startActivity()
                     _ = await runner.runPrivileged(["--clean", "--force"])
-                    if runner.exitCode == 0 { mascot.succeed() } else { mascot.reset() }
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -75,10 +72,6 @@ struct CleanView: View {
         }
 
         if !runner.output.isEmpty {
-            if !runner.isRunning && runner.exitCode == 0 {
-                SuccessBanner(message: "Clean complete")
-            }
-
             OutputLogView(
                 output: runner.output,
                 statusLine: runner.exitCode == 0 ? "Clean complete" : "Clean finished with errors"

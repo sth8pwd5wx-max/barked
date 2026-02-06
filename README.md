@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="mascots/barked-mascot-idle-nobg.svg" width="128" height="128" alt="Barked mascot — a pixelated pine tree standing guard">
-</p>
-
 # Barked
 
 **Tough outer layer for your system.**
@@ -254,7 +250,6 @@ barked/
 ├── gui/
 │   ├── Barked/                # SwiftUI macOS menubar app (macOS 13+)
 │   └── build.sh               # Build Barked.app bundle
-├── mascots/                   # Pixel art mascot SVGs (static + animated)
 ├── docs/plans/                # Design documents
 ├── audits/                    # Audit reports
 ├── baseline/                  # Known-good system snapshots
