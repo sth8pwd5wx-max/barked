@@ -7,7 +7,8 @@ struct MenuBarView: View {
 
     var body: some View {
         Button("Quick Clean") {
-            Task { await runner.run(["--clean", "--force"]) }
+            let allCats = CleanCategory.all.map(\.id).joined(separator: ",")
+            Task { await runner.run(["--clean", "--force", "--clean-cats", allCats]) }
         }
         .disabled(runner.isRunning)
 

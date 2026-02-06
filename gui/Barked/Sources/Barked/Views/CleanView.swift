@@ -30,6 +30,10 @@ struct CleanView: View {
         .padding()
     }
 
+    private var catsArg: String {
+        selectedCategories.joined(separator: ",")
+    }
+
     @ViewBuilder
     private var cleanContent: some View {
         Text("System Cleaner")
@@ -51,7 +55,7 @@ struct CleanView: View {
         HStack(spacing: 12) {
             Button("Preview") {
                 Task {
-                    await runner.run(["--clean", "--dry-run"])
+                    await runner.run(["--clean", "--dry-run", "--clean-cats", catsArg])
                     previewOutput = runner.output
                     showingPreview = true
                 }
@@ -60,7 +64,7 @@ struct CleanView: View {
 
             Button("Clean Now") {
                 Task {
-                    _ = await runner.runPrivileged(["--clean", "--force"])
+                    _ = await runner.runPrivileged(["--clean", "--force", "--clean-cats", catsArg])
                 }
             }
             .buttonStyle(.borderedProminent)

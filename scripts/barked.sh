@@ -90,6 +90,7 @@ CLEAN_FORCE=false
 CLEAN_SCHEDULED=false
 CLEAN_SCHEDULE_SETUP=false
 CLEAN_UNSCHEDULE=false
+CLEAN_CATS_PRESET=""
 
 # Scheduled clean config (loaded from config file)
 SCHED_ENABLED=""
@@ -8585,6 +8586,10 @@ parse_args() {
             --clean-unschedule)
                 CLEAN_UNSCHEDULE=true
                 ;;
+            --clean-cats)
+                shift
+                CLEAN_CATS_PRESET="$1"
+                ;;
             --monitor)
                 MONITOR_MODE=true
                 ;;
@@ -8681,6 +8686,7 @@ parse_args() {
                 echo "  --clean-scheduled      Execute a scheduled clean run"
                 echo "  --clean-schedule       Set up scheduled cleaning"
                 echo "  --clean-unschedule     Remove scheduled cleaning"
+                echo "  --clean-cats <list>    Preset categories (comma-separated, skip menus)"
                 echo "  --monitor              Start continuous security monitoring"
                 echo "    --install            Install monitor as system daemon (interactive)"
                 echo "    --uninstall          Remove monitor daemon"
@@ -10082,43 +10088,67 @@ run_clean() {
     printf "${GREEN}║${NC}%-50s${GREEN}║${NC}\n" "                  macOS / Linux"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 
-    # Landing menu: clean now, schedule, or back
-    echo ""
-    echo -e "  ${GREEN}[1]${NC} Clean now"
+    # If categories were preset via --clean-cats, skip interactive menus
+    if [[ -n "$CLEAN_CATS_PRESET" ]]; then
+        # Reset all categories, then enable only the preset ones
+        for cat in "${CLEAN_CAT_ORDER[@]}"; do
+            CLEAN_CATEGORIES[$cat]=0
+        done
+        IFS=',' read -ra _preset_cats <<< "$CLEAN_CATS_PRESET"
+        for cat in "${_preset_cats[@]}"; do
+            if [[ -n "${CLEAN_CAT_NAMES[$cat]+x}" ]]; then
+                CLEAN_CATEGORIES[$cat]=1
+            fi
+        done
+        # Populate targets from enabled categories
+        for cat in "${CLEAN_CAT_ORDER[@]}"; do
+            if [[ "${CLEAN_CATEGORIES[$cat]}" == "1" ]]; then
+                for target in ${CLEAN_CAT_TARGETS[$cat]}; do
+                    if clean_target_available "$target"; then
+                        CLEAN_TARGETS[$target]=1
+                    fi
+                done
+            fi
+        done
+    else
+        # Landing menu: clean now, schedule, or back
+        echo ""
+        echo -e "  ${GREEN}[1]${NC} Clean now"
 
-    # Build schedule option with status if configured
-    local schedule_text="Schedule automated cleaning"
-    if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]] || [[ -f "$SCHED_CLEAN_CONFIG_PROJECT" ]]; then
-        if load_scheduled_config 2>/dev/null; then
-            if [[ "$SCHED_ENABLED" == "true" ]]; then
-                local sched_display=""
-                case "$SCHED_SCHEDULE" in
-                    daily) sched_display="Daily" ;;
-                    weekly) sched_display="Weekly" ;;
-                    custom) sched_display="Custom" ;;
-                    *) sched_display="$SCHED_SCHEDULE" ;;
-                esac
-                schedule_text="Manage automated cleaning (currently: ${sched_display})"
+        # Build schedule option with status if configured
+        local schedule_text="Schedule automated cleaning"
+        if [[ -f "$SCHED_CLEAN_CONFIG_USER" ]] || [[ -f "$SCHED_CLEAN_CONFIG_PROJECT" ]]; then
+            if load_scheduled_config 2>/dev/null; then
+                if [[ "$SCHED_ENABLED" == "true" ]]; then
+                    local sched_display=""
+                    case "$SCHED_SCHEDULE" in
+                        daily) sched_display="Daily" ;;
+                        weekly) sched_display="Weekly" ;;
+                        custom) sched_display="Custom" ;;
+                        *) sched_display="$SCHED_SCHEDULE" ;;
+                    esac
+                    schedule_text="Manage automated cleaning (currently: ${sched_display})"
+                fi
             fi
         fi
+        echo -e "  ${CYAN}[S]${NC} ${schedule_text}"
+        echo -e "  ${BROWN}[B] Back${NC}"
+        echo ""
+
+        while true; do
+            echo -ne "  ${BOLD}Choice:${NC} "
+            read -r choice
+            case "${choice,,}" in
+                1) break ;;
+                s) setup_scheduled_clean; run_clean; return ;;
+                b) return ;;
+                *) echo -e "  ${RED}Invalid choice.${NC}" ;;
+            esac
+        done
+
+        clean_picker
+        clean_drilldown
     fi
-    echo -e "  ${CYAN}[S]${NC} ${schedule_text}"
-    echo -e "  ${BROWN}[B] Back${NC}"
-    echo ""
-
-    while true; do
-        echo -ne "  ${BOLD}Choice:${NC} "
-        read -r choice
-        case "${choice,,}" in
-            1) break ;;
-            s) setup_scheduled_clean; run_clean; return ;;
-            b) return ;;
-            *) echo -e "  ${RED}Invalid choice.${NC}" ;;
-        esac
-    done
-
-    clean_picker
-    clean_drilldown
     needs_sudo && acquire_sudo
     clean_preview
 
