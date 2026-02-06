@@ -5,6 +5,12 @@ state/
 docs/plans/
 CLAUDE.md
 
+# Release artifacts
+gui/Barked.app/
+gui/Barked.app.tar.gz
+gui/Barked.app.tar.gz.sha256
+scripts/*.sha256
+
 # Environment and credentials
 .env
 .env.*
