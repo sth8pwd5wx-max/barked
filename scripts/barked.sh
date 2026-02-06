@@ -10359,6 +10359,7 @@ run_update_app() {
             echo -e "${RED}Failed to install Barked.app to /Applications.${NC}"
             exit 1
         }
+        xattr -cr /Applications/Barked.app 2>/dev/null
 
         echo -e "${GREEN}Barked.app updated to v${latest}.${NC}"
         echo "__BARKED_RELAUNCH__"
