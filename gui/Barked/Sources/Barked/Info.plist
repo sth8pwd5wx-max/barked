@@ -15,8 +15,8 @@
     <key>CFBundleIdentifier</key>
     <string>com.barked.gui</string>
     <key>CFBundleVersion</key>
-    <string>2.15.0</string>
+    <string>2.15.1</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.15.0</string>
+    <string>2.15.1</string>
 </dict>
 </plist>
