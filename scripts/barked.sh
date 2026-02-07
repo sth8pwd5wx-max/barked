@@ -20,7 +20,7 @@ if ((BASH_VERSINFO[0] < 4)); then
     exit 1
 fi
 
-readonly VERSION="2.15.2"
+readonly VERSION="2.16.0"
 readonly GITHUB_REPO="sth8pwd5wx-max/barked"
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 readonly DATE="$(date +%Y-%m-%d)"
