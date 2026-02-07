@@ -28,7 +28,7 @@ struct UninstallView: View {
 
             Button("Uninstall") {
                 Task {
-                    _ = await runner.runPrivileged(["--auto", "--uninstall"])
+                    _ = await runner.runPrivileged(["--auto", "--uninstall"], reason: "Reverting hardening changes requires administrator access to restore firewall rules, DNS settings, and system security preferences.")
                 }
             }
             .buttonStyle(.borderedProminent)

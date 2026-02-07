@@ -32,7 +32,7 @@ struct HardenView: View {
                 HStack {
                     Button("Apply \(profile.displayName) Profile") {
                         Task {
-                            _ = await runner.runPrivileged(profile.cliFlag)
+                            _ = await runner.runPrivileged(profile.cliFlag, reason: "Applying the \(profile.displayName) profile requires administrator access to modify firewall rules, DNS settings, and system security preferences.")
                         }
                     }
                     .buttonStyle(.borderedProminent)

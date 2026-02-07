@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 @MainActor
 class ScriptRunner: ObservableObject {
@@ -73,8 +74,23 @@ class ScriptRunner: ObservableObject {
         self.process = nil
     }
 
-    /// Run with administrator privileges (shows system auth dialog)
-    func runPrivileged(_ arguments: [String]) async -> (output: String, exitCode: Int32) {
+    /// Run with administrator privileges (shows reason alert then system auth dialog)
+    func runPrivileged(_ arguments: [String], reason: String) async -> (output: String, exitCode: Int32) {
+        // Bring app to front and explain why root is needed
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Administrator Access Required"
+        alert.informativeText = reason
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else {
+            output = "Cancelled by user."
+            exitCode = 1
+            return (output, 1)
+        }
+
         isRunning = true
         output = ""
         exitCode = nil

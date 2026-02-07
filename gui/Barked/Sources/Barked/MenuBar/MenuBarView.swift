@@ -8,9 +8,9 @@ struct MenuBarView: View {
 
     var body: some View {
         Button("Quick Clean") {
-            let allCats = CleanCategory.all.map(\.id).joined(separator: ",")
+            let userCats = CleanCategory.all.map(\.id).filter { $0 != "system-caches" }.joined(separator: ",")
             Task {
-                await runner.run(["--clean", "--force", "--clean-cats", allCats])
+                await runner.run(["--clean", "--force", "--clean-cats", userCats])
                 let content = UNMutableNotificationContent()
                 content.title = "Barked"
                 content.body = runner.exitCode == 0 ? "Quick clean completed." : "Quick clean finished with errors."

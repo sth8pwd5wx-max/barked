@@ -47,7 +47,7 @@ struct ModifyView: View {
             HStack {
                 Button("Apply \(enabledModules.count) Modules") {
                     Task {
-                        _ = await runner.runPrivileged(["--auto", "--modify"])
+                        _ = await runner.runPrivileged(["--auto", "--modify"], reason: "Modifying security modules requires administrator access to change firewall, network, and system configuration.")
                     }
                 }
                 .buttonStyle(.borderedProminent)

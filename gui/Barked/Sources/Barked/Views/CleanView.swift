@@ -87,7 +87,7 @@ struct CleanView: View {
 
             Button("Clean Now") {
                 Task {
-                    _ = await runner.runPrivileged(["--clean", "--force", "--clean-cats", catsArg])
+                    _ = await runner.runPrivileged(["--clean", "--force", "--clean-cats", catsArg], reason: "Cleaning system caches, logs, and diagnostic reports requires administrator access to remove protected files.")
                     sendCleanNotification(success: runner.exitCode == 0)
                 }
             }
